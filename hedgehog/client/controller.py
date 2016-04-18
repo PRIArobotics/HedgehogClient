@@ -1,6 +1,5 @@
 import zmq
-import threading
-import hedgehog.proto
+from hedgehog.protocol import messages
 
 
 class HedgehogController:
@@ -11,10 +10,10 @@ class HedgehogController:
         self.socket.connect(endpoint)
 
     def get_analogs(self, *ports):
-        msg = hedgehog.proto.AnalogRequest(ports)
+        msg = messages.AnalogRequest(ports)
         self.socket.send(msg.SerializeToString())
 
-        msg = hedgehog.proto.parse(self.socket.recv())
+        msg = messages.parse(self.socket.recv())
         sensors = msg.analog_update.sensors
         return [sensors[port] for port in ports]
 
