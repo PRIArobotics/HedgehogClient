@@ -11,12 +11,12 @@ class TestClient(unittest.TestCase):
         simulator = HedgehogSimulator('tcp://*:5555', context=context)
         simulator.start()
 
-        client = HedgehogClient('tcp://localhost:5555', b'client')
+        client = HedgehogClient('tcp://localhost:5555', context=context)
         self.assertEqual(client.get_analogs(0, 1), [0, 0])
         self.assertEqual(client.get_analog(0), 0)
-
         client.close()
-        simulator.kill()
+
+        simulator.close()
 
 
 if __name__ == '__main__':
