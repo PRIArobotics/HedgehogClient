@@ -51,7 +51,7 @@ setup(
     # You can install these using the following syntax, for example:
     # $ pip install -e .[dev,test]
     extras_require={
-        # 'dev': ['invoke'],
+        'test': ['hedgehog-simulator'],
     },
 
     # package_data={
