@@ -1,5 +1,6 @@
 import zmq
-from hedgehog.protocol import messages, sockets
+from hedgehog.protocol import sockets
+from hedgehog.protocol.messages import analog
 
 
 class HedgehogClient:
@@ -9,13 +10,11 @@ class HedgehogClient:
         socket.connect(endpoint)
         self.socket = sockets.DealerWrapper(socket)
 
-    def get_analogs(self, *ports):
-        self.socket.send(messages.AnalogRequest(ports))
-        sensors = self.socket.recv().analog_update.sensors
-        return [sensors[port] for port in ports]
-
     def get_analog(self, port):
-        return self.get_analogs(port)[0]
+        self.socket.send(analog.Request(port))
+        response = self.socket.recv()
+        assert response.port == port
+        return response.value
 
     def close(self):
         self.socket.close()
