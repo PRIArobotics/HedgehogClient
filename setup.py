@@ -36,7 +36,7 @@ setup(
         'Programming Language :: Python :: 3',
     ],
 
-    keywords='hedgehog robotics',
+    keywords='hedgehog robotics controller client',
 
     # You can just specify the packages manually here if your project is
     # simple. Or you can use find_packages().
@@ -51,7 +51,7 @@ setup(
     # You can install these using the following syntax, for example:
     # $ pip install -e .[dev,test]
     extras_require={
-        'test': ['hedgehog-simulator'],
+        'test': ['hedgehog-server'],
     },
 
     # package_data={

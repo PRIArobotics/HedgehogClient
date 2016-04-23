@@ -1,6 +1,7 @@
 import unittest
 import zmq
-from hedgehog.simulator import HedgehogSimulator
+from hedgehog.server import HedgehogServer
+from hedgehog.server.simulator import SimulatorCommandHandler
 from hedgehog.client import HedgehogClient
 
 
@@ -8,7 +9,7 @@ class TestClient(unittest.TestCase):
     def test_get_analog(self):
         context = zmq.Context.instance()
 
-        simulator = HedgehogSimulator('tcp://*:5555', context=context)
+        simulator = HedgehogServer('tcp://*:5555', SimulatorCommandHandler(), context=context)
         simulator.start()
 
         client = HedgehogClient('tcp://localhost:5555', context=context)
