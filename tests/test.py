@@ -6,6 +6,21 @@ from hedgehog.protocol.messages.motor import POWER, BRAKE, VELOCITY
 
 
 class TestClient(unittest.TestCase):
+    def test_multiple_clients(self):
+        context = zmq.Context()
+
+        controller = HedgehogServer('inproc://controller', simulator.handler(), context=context)
+        controller.start()
+
+        client1 = HedgehogClient('inproc://controller', context=context)
+        client2 = HedgehogClient('inproc://controller', context=context)
+        self.assertEqual(client1.get_analog(0), 0)
+        self.assertEqual(client2.get_analog(0), 0)
+        client1.close()
+        client2.close()
+
+        controller.close()
+
     def test_get_analog(self):
         context = zmq.Context()
 
