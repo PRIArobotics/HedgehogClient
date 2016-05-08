@@ -1,14 +1,77 @@
+import threading
 import zmq
 from hedgehog.protocol import sockets
-from hedgehog.protocol.messages import ack, analog, digital, motor, servo
+from hedgehog.protocol.messages import ack, analog, digital, motor, servo, process
 
 
-class HedgehogClient:
+class ClientBackend:
     def __init__(self, endpoint, context=None):
-        context = context or zmq.Context.instance()
-        socket = context.socket(zmq.DEALER)
-        socket.connect(endpoint)
-        self.socket = sockets.DealerWrapper(socket)
+        self._context = zmq.Context()
+        self.context = context or zmq.Context.instance()
+        self.endpoint = endpoint
+
+        signal = self._context.socket(zmq.PAIR)
+        signal.bind('inproc://signal')
+
+        threading.Thread(target=self.run).start()
+
+        signal.recv()
+        signal.close()
+
+    def run(self):
+        socket = self._context.socket(zmq.ROUTER)
+        socket.bind('inproc://socket')
+        socket = sockets.DealerRouterWrapper(socket)
+
+        closer = self._context.socket(zmq.ROUTER)
+        closer.bind('inproc://closer')
+
+        backend = self.context.socket(zmq.DEALER)
+        backend.connect(self.endpoint)
+        backend = sockets.DealerRouterWrapper(backend)
+
+        signal = self._context.socket(zmq.PAIR)
+        signal.connect('inproc://signal')
+        signal.send(b'')
+        signal.close()
+
+        poller = zmq.Poller()
+        poller.register(socket.socket, zmq.POLLIN)
+        poller.register(backend.socket, zmq.POLLIN)
+        poller.register(closer, zmq.POLLIN)
+        while len(poller.sockets) > 0:
+            for sock, _ in poller.poll():
+                if sock is closer:
+                    sock.recv()
+                    poller.unregister(socket.socket)
+                    poller.unregister(backend.socket)
+                    poller.unregister(closer)
+                else:
+                    input, output = (socket, backend) if sock is socket.socket else (backend, socket)
+                    header, msgs = input.recv_multipart()
+                    output.send_multipart(header, msgs)
+        socket.close()
+        backend.close()
+        closer.close()
+
+    def connect(self):
+        socket = self._context.socket(zmq.REQ)
+        socket.connect('inproc://socket')
+
+        closer= self._context.socket(zmq.DEALER)
+        closer.connect('inproc://closer')
+        return _HedgehogClient(socket, closer)
+
+
+def HedgehogClient(endpoint, context= None):
+    backend = ClientBackend(endpoint, context=context)
+    return backend.connect()
+
+
+class _HedgehogClient:
+    def __init__(self, socket, closer):
+        self.socket = sockets.ReqWrapper(socket)
+        self.closer = closer
 
     def get_analog(self, port):
         self.socket.send(analog.Request(port))
@@ -81,4 +144,6 @@ class HedgehogClient:
         assert response.code == ack.OK
 
     def close(self):
+        self.closer.send(b'')
+        self.closer.close()
         self.socket.close()
