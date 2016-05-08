@@ -49,7 +49,15 @@ class ClientBackend:
                 else:
                     input, output = (socket, backend) if sock is socket.socket else (backend, socket)
                     header, msgs = input.recv_multipart()
-                    output.send_multipart(header, msgs)
+
+                    # handle synchronous messages
+                    output.send_multipart(header, [msg for msg in msgs if not msg.async])
+                    # handle asynchronous messages
+                    for msg in msgs:
+                        if msg.async:
+                            # currently motor.StateUpdate, process.StreamUpdate or process.ExitUpdate
+                            # TODO
+                            pass
         socket.close()
         backend.close()
         closer.close()
@@ -61,6 +69,13 @@ class ClientBackend:
         closer= self._context.socket(zmq.DEALER)
         closer.connect('inproc://closer')
         return _HedgehogClient(socket, closer)
+
+    def spawn(self, callback):
+        def target():
+            client = self.connect()
+            callback(client)
+
+        threading.Thread(target=target).start()
 
 
 def HedgehogClient(endpoint, context= None):
@@ -100,7 +115,9 @@ class _HedgehogClient:
         response = self.socket.recv()
         assert response.code == ack.OK
 
-    def set_motor(self, port, state, amount=0, reached_state=motor.POWER, relative=None, absolute=None):
+    def set_motor(self, port, state, amount=0, reached_state=motor.POWER, relative=None, absolute=None, reached_cb=None):
+        if reached_cb is not None and relative is None and absolute is None:
+            raise ValueError("callback given, but no end position")
         self.socket.send(motor.Action(port, state, amount, reached_state, relative, absolute))
         response = self.socket.recv()
         assert response.code == ack.OK
@@ -108,10 +125,10 @@ class _HedgehogClient:
     def move(self, port, amount, state=motor.POWER):
         self.set_motor(port, state, amount)
 
-    def move_relative_position(self, port, amount, relative, state=motor.POWER):
+    def move_relative_position(self, port, amount, relative, state=motor.POWER, reached_cb=None):
         self.set_motor(port, state, amount, relative=relative)
 
-    def move_absolute_position(self, port, amount, absolute, state=motor.POWER):
+    def move_absolute_position(self, port, amount, absolute, state=motor.POWER, reached_cb=None):
         self.set_motor(port, state, amount, absolute=absolute)
 
     def get_motor(self, port):
@@ -140,6 +157,17 @@ class _HedgehogClient:
 
     def set_servo_state(self, port, active):
         self.socket.send(servo.StateAction(port, active))
+        response = self.socket.recv()
+        assert response.code == ack.OK
+
+    def execute_process(self, *args, working_dir=None, stream_cb=None, exit_cb=None):
+        self.socket.send(process.ExecuteRequest(*args, working_dir=working_dir))
+        response = self.socket.recv()
+        assert response.code == ack.OK
+        return response.pid
+
+    def send_process_data(self, pid, chunk=b''):
+        self.socket.send(process.StreamAction(pid, process.STDIN, chunk))
         response = self.socket.recv()
         assert response.code == ack.OK
 
