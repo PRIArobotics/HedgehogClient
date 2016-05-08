@@ -1,8 +1,11 @@
 import threading
 import zmq
-from hedgehog.protocol import sockets
+from hedgehog.protocol import messages, sockets
 from hedgehog.protocol.messages import ack, analog, digital, motor, servo, process
 
+
+_COMMAND = b'\x00'
+_CLOSE = b'\x01'
 
 class ClientBackend:
     def __init__(self, endpoint, context=None):
@@ -23,9 +26,6 @@ class ClientBackend:
         socket.bind('inproc://socket')
         socket = sockets.DealerRouterWrapper(socket)
 
-        closer = self._context.socket(zmq.ROUTER)
-        closer.bind('inproc://closer')
-
         backend = self.context.socket(zmq.DEALER)
         backend.connect(self.endpoint)
         backend = sockets.DealerRouterWrapper(backend)
@@ -38,20 +38,26 @@ class ClientBackend:
         poller = zmq.Poller()
         poller.register(socket.socket, zmq.POLLIN)
         poller.register(backend.socket, zmq.POLLIN)
-        poller.register(closer, zmq.POLLIN)
         while len(poller.sockets) > 0:
             for sock, _ in poller.poll():
-                if sock is closer:
-                    sock.recv()
-                    poller.unregister(socket.socket)
-                    poller.unregister(backend.socket)
-                    poller.unregister(closer)
-                else:
-                    input, output = (socket, backend) if sock is socket.socket else (backend, socket)
-                    header, msgs = input.recv_multipart()
+                if sock is socket.socket:
+                    # receive from the frontend
+                    header, msgs_raw = socket.recv_multipart_raw()
+                    type = msgs_raw[0]
+
+                    if type == _CLOSE:
+                        # close the backend
+                        poller.unregister(socket.socket)
+                        poller.unregister(backend.socket)
+                    else:  # type == _COMMAND
+                        # forward to the backend
+                        backend.send_multipart(header, [messages.parse(msg) for msg in msgs_raw[1:]])
+                else:  # sock is backend.socket
+                    # receive from the backend
+                    header, msgs = backend.recv_multipart()
 
                     # handle synchronous messages
-                    output.send_multipart(header, [msg for msg in msgs if not msg.async])
+                    socket.send_multipart(header, [msg for msg in msgs if not msg.async])
                     # handle asynchronous messages
                     for msg in msgs:
                         if msg.async:
@@ -60,15 +66,12 @@ class ClientBackend:
                             pass
         socket.close()
         backend.close()
-        closer.close()
 
     def connect(self):
         socket = self._context.socket(zmq.REQ)
         socket.connect('inproc://socket')
 
-        closer = self._context.socket(zmq.DEALER)
-        closer.connect('inproc://closer')
-        return _HedgehogClient(socket, closer)
+        return _HedgehogClient(socket)
 
     def spawn(self, callback):
         def target():
@@ -84,42 +87,39 @@ def HedgehogClient(endpoint, context= None):
 
 
 class _HedgehogClient:
-    def __init__(self, socket, closer):
+    def __init__(self, socket):
         self.socket = sockets.ReqWrapper(socket)
-        self.closer = closer
+
+    def _send(self, msg):
+        self.socket.send_multipart_raw([_COMMAND, msg.serialize()])
+        return self.socket.recv()
 
     def get_analog(self, port):
-        self.socket.send(analog.Request(port))
-        response = self.socket.recv()
+        response = self._send(analog.Request(port))
         assert response.port == port
         return response.value
 
     def set_analog_state(self, port, pullup):
-        self.socket.send(analog.StateAction(port, pullup))
-        response = self.socket.recv()
+        response = self._send(analog.StateAction(port, pullup))
         assert response.code == ack.OK
 
     def get_digital(self, port):
-        self.socket.send(digital.Request(port))
-        response = self.socket.recv()
+        response = self._send(digital.Request(port))
         assert response.port == port
         return response.value
 
     def set_digital_state(self, port, pullup, output):
-        self.socket.send(digital.StateAction(port, pullup, output))
-        response = self.socket.recv()
+        response = self._send(digital.StateAction(port, pullup, output))
         assert response.code == ack.OK
 
     def set_digital_output(self, port, level):
-        self.socket.send(digital.Action(port, level))
-        response = self.socket.recv()
+        response = self._send(digital.Action(port, level))
         assert response.code == ack.OK
 
     def set_motor(self, port, state, amount=0, reached_state=motor.POWER, relative=None, absolute=None, reached_cb=None):
         if reached_cb is not None and relative is None and absolute is None:
             raise ValueError("callback given, but no end position")
-        self.socket.send(motor.Action(port, state, amount, reached_state, relative, absolute))
-        response = self.socket.recv()
+        response = self._send(motor.Action(port, state, amount, reached_state, relative, absolute))
         assert response.code == ack.OK
 
     def move(self, port, amount, state=motor.POWER):
@@ -132,8 +132,7 @@ class _HedgehogClient:
         self.set_motor(port, state, amount, absolute=absolute)
 
     def get_motor(self, port):
-        self.socket.send(motor.Request(port))
-        response = self.socket.recv()
+        response = self._send(motor.Request(port))
         assert response.port == port
         return response.velocity, response.position
 
@@ -146,32 +145,26 @@ class _HedgehogClient:
         return position
 
     def set_motor_position(self, port, position):
-        self.socket.send(motor.SetPositionAction(port, position))
-        response = self.socket.recv()
+        response = self._send(motor.SetPositionAction(port, position))
         assert response.code == ack.OK
 
     def set_servo(self, port, position):
-        self.socket.send(servo.Action(port, position))
-        response = self.socket.recv()
+        response = self._send(servo.Action(port, position))
         assert response.code == ack.OK
 
     def set_servo_state(self, port, active):
-        self.socket.send(servo.StateAction(port, active))
-        response = self.socket.recv()
+        response = self._send(servo.StateAction(port, active))
         assert response.code == ack.OK
 
     def execute_process(self, *args, working_dir=None, stream_cb=None, exit_cb=None):
-        self.socket.send(process.ExecuteRequest(*args, working_dir=working_dir))
-        response = self.socket.recv()
+        response = self._send(process.ExecuteRequest(*args, working_dir=working_dir))
         assert response.code == ack.OK
         return response.pid
 
     def send_process_data(self, pid, chunk=b''):
-        self.socket.send(process.StreamAction(pid, process.STDIN, chunk))
-        response = self.socket.recv()
+        response = self._send(process.StreamAction(pid, process.STDIN, chunk))
         assert response.code == ack.OK
 
     def close(self):
-        self.closer.send(b'')
-        self.closer.close()
+        self.socket.send_raw(_CLOSE)
         self.socket.close()
