@@ -5,7 +5,8 @@ from hedgehog.protocol.messages import ack, analog, digital, motor, servo, proce
 
 
 _COMMAND = b'\x00'
-_CLOSE = b'\x01'
+_CONNECT = b'\x01'
+_CLOSE = b'\x02'
 
 class ClientBackend:
     def __init__(self, endpoint, context=None):
@@ -45,7 +46,10 @@ class ClientBackend:
                     header, msgs_raw = socket.recv_multipart_raw()
                     type = msgs_raw[0]
 
-                    if type == _CLOSE:
+                    if type == _CONNECT:
+                        # send back the socket ID
+                        socket.send_raw(header, header[0])
+                    elif type == _CLOSE:
                         # close the backend
                         poller.unregister(socket.socket)
                         poller.unregister(backend.socket)
@@ -64,6 +68,7 @@ class ClientBackend:
                             # currently motor.StateUpdate, process.StreamUpdate or process.ExitUpdate
                             # TODO
                             pass
+
         socket.close()
         backend.close()
 
@@ -89,6 +94,8 @@ def HedgehogClient(endpoint, context= None):
 class _HedgehogClient:
     def __init__(self, socket):
         self.socket = sockets.ReqWrapper(socket)
+        self.socket.send_raw(_CONNECT)
+        self.identifier = self.socket.recv_raw()
 
     def _send(self, msg):
         self.socket.send_multipart_raw([_COMMAND, msg.serialize()])
