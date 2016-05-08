@@ -66,7 +66,7 @@ class ClientBackend:
         socket = self._context.socket(zmq.REQ)
         socket.connect('inproc://socket')
 
-        closer= self._context.socket(zmq.DEALER)
+        closer = self._context.socket(zmq.DEALER)
         closer.connect('inproc://closer')
         return _HedgehogClient(socket, closer)
 
