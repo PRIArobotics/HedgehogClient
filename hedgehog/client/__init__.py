@@ -12,6 +12,8 @@ _CLOSE = b'\x02'
 class ClientData:
     def __init__(self):
         self.out_of_band = None
+        self.motor_cbs = {}
+        self.process_cbs = {}
 
     def handle_out_of_band(self, reps):
         assert len(self.out_of_band) == len(reps)
@@ -160,7 +162,7 @@ class _HedgehogClient:
         if reached_cb is not None and relative is None and absolute is None:
             raise ValueError("callback given, but no end position")
         def register(rep):
-            pass
+            self.client_data.motor_cbs[port] = (reached_cb,)
         response = self._send(motor.Action(port, state, amount, reached_state, relative, absolute), register)
         assert response.code == ack.OK
 
@@ -200,7 +202,7 @@ class _HedgehogClient:
 
     def execute_process(self, *args, working_dir=None, stream_cb=None, exit_cb=None):
         def register(rep):
-            pass
+            self.client_data.process_cbs[rep.pid] = (stream_cb, exit_cb)
         response = self._send(process.ExecuteRequest(*args, working_dir=working_dir), register)
         assert response.code == ack.OK
         return response.pid
