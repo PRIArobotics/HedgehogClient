@@ -137,10 +137,10 @@ class _HedgehogClient:
         self.set_motor(port, state, amount)
 
     def move_relative_position(self, port, amount, relative, state=motor.POWER, reached_cb=None):
-        self.set_motor(port, state, amount, relative=relative)
+        self.set_motor(port, state, amount, relative=relative, reached_cb=reached_cb)
 
     def move_absolute_position(self, port, amount, absolute, state=motor.POWER, reached_cb=None):
-        self.set_motor(port, state, amount, absolute=absolute)
+        self.set_motor(port, state, amount, absolute=absolute, reached_cb=reached_cb)
 
     def get_motor(self, port):
         response = self._send(motor.Request(port))
