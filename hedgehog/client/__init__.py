@@ -9,11 +9,16 @@ _CONNECT = b'\x01'
 _CLOSE = b'\x02'
 
 
+class ClientData:
+    pass
+
+
 class ClientBackend:
     def __init__(self, endpoint, context=None):
         self._context = zmq.Context()
         self.context = context or zmq.Context.instance()
         self.endpoint = endpoint
+        self.client_data = {}
 
         signal = self._context.socket(zmq.PAIR)
         signal.bind('inproc://signal')
@@ -49,6 +54,7 @@ class ClientBackend:
                     if cmd == _CONNECT:
                         # send back the socket ID
                         identity = header[0]
+                        self.client_data[identity] = ClientData()
                         socket.send_raw(header, identity)
                     elif cmd == _CLOSE:
                         # close the backend
@@ -79,7 +85,7 @@ class ClientBackend:
         socket = self._context.socket(zmq.REQ)
         socket.connect('inproc://socket')
 
-        return _HedgehogClient(socket)
+        return _HedgehogClient(self, socket)
 
     def spawn(self, callback):
         def target():
@@ -95,11 +101,14 @@ def HedgehogClient(endpoint, context=None):
 
 
 class _HedgehogClient:
-    def __init__(self, socket):
+    def __init__(self, backend, socket):
         self.socket = sockets.ReqWrapper(socket)
 
         self.socket.send_raw(_CONNECT)
-        self.identity = self.socket.recv_raw()
+        identity = self.socket.recv_raw()
+
+        # TODO writes in the backend may interfere with this read
+        self.client_data = backend.client_data[identity]
 
     def _send(self, msg):
         self.socket.send_multipart_raw([_COMMAND, msg.serialize()])
