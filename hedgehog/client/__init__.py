@@ -87,9 +87,18 @@ class ClientBackend:
                     if msgs[0].async:
                         # handle asynchronous messages
                         for msg in msgs:
-                            # currently motor.StateUpdate, process.StreamUpdate or process.ExitUpdate
-                            # TODO
-                            pass
+                            if type(msg) is messages.motor.StateUpdate:
+                                reached_cb, = client_data.process_cbs[msg.pid]
+                                if reached_cb is not None:
+                                    self.spawn(reached_cb, msg.port, msg.state)
+                            if type(msg) is messages.process.StreamUpdate:
+                                stream_cb, _ = client_data.process_cbs[msg.pid]
+                                if stream_cb is not None:
+                                    self.spawn(stream_cb, msg.pid, msg.fileno, msg.chunk)
+                            if type(msg) is messages.process.ExitUpdate:
+                                _, exit_cb = client_data.process_cbs[msg.pid]
+                                if exit_cb is not None:
+                                    self.spawn(exit_cb, msg.pid, msg.exit_code)
                     else:
                         # handle synchronous messages
                         client_data.handle_out_of_band(msgs)
@@ -105,12 +114,12 @@ class ClientBackend:
 
         return _HedgehogClient(self, socket)
 
-    def spawn(self, callback):
-        def target():
+    def spawn(self, callback, *args, **kwargs):
+        def target(*args, **kwargs):
             client = self.connect()
-            callback(client)
+            callback(client, *args, **kwargs)
 
-        threading.Thread(target=target).start()
+        threading.Thread(target=target, args=args, kwargs=kwargs).start()
 
 
 def HedgehogClient(endpoint, context=None):
