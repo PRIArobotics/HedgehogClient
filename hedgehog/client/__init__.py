@@ -10,7 +10,15 @@ _CLOSE = b'\x02'
 
 
 class ClientData:
-    pass
+    def __init__(self):
+        self.out_of_band = None
+
+    def handle_out_of_band(self, reps):
+        assert len(self.out_of_band) == len(reps)
+        for handler, rep in zip(self.out_of_band, reps):
+            if handler is not None:
+                handler(rep)
+        self.out_of_band = None
 
 
 class ClientBackend:
@@ -62,21 +70,29 @@ class ClientBackend:
                         poller.unregister(backend.socket)
                     else:  # cmd == _COMMAND
                         # forward to the backend
+                        assert len(msgs_raw) > 0
                         backend.send_multipart(header, [messages.parse(msg) for msg in msgs_raw])
                 else:  # sock is backend.socket
                     # receive from the backend
                     header, msgs = backend.recv_multipart()
+                    assert len(msgs) > 0
 
-                    # handle synchronous messages
-                    reps = [msg for msg in msgs if not msg.async]
-                    socket.send_multipart(header, reps)
+                    identity = header[0]
+                    client_data = self.client_data[identity]
 
-                    # handle asynchronous messages
-                    for msg in msgs:
-                        if msg.async:
+                    # either, all messages are replies corresponding to the previous requests,
+                    # or all messages are asynchronous updates
+                    if msgs[0].async:
+                        # handle asynchronous messages
+                        for msg in msgs:
                             # currently motor.StateUpdate, process.StreamUpdate or process.ExitUpdate
                             # TODO
                             pass
+                    else:
+                        # handle synchronous messages
+                        client_data.handle_out_of_band(msgs)
+                        socket.send_multipart(header, msgs)
+
 
         socket.close()
         backend.close()
@@ -110,9 +126,13 @@ class _HedgehogClient:
         # TODO writes in the backend may interfere with this read
         self.client_data = backend.client_data[identity]
 
-    def _send(self, msg):
-        self.socket.send_multipart_raw([_COMMAND, msg.serialize()])
-        return self.socket.recv()
+    def _send(self, msg, handler=None):
+        return self._send_multipart((msg, handler))[0]
+
+    def _send_multipart(self, *cmds):
+        self.client_data.out_of_band = [cmd[1] for cmd in cmds]
+        self.socket.send_multipart_raw([_COMMAND] + [cmd[0].serialize() for cmd in cmds])
+        return self.socket.recv_multipart()
 
     def get_analog(self, port):
         response = self._send(analog.Request(port))
@@ -139,7 +159,9 @@ class _HedgehogClient:
     def set_motor(self, port, state, amount=0, reached_state=motor.POWER, relative=None, absolute=None, reached_cb=None):
         if reached_cb is not None and relative is None and absolute is None:
             raise ValueError("callback given, but no end position")
-        response = self._send(motor.Action(port, state, amount, reached_state, relative, absolute))
+        def register(rep):
+            pass
+        response = self._send(motor.Action(port, state, amount, reached_state, relative, absolute), register)
         assert response.code == ack.OK
 
     def move(self, port, amount, state=motor.POWER):
@@ -177,7 +199,9 @@ class _HedgehogClient:
         assert response.code == ack.OK
 
     def execute_process(self, *args, working_dir=None, stream_cb=None, exit_cb=None):
-        response = self._send(process.ExecuteRequest(*args, working_dir=working_dir))
+        def register(rep):
+            pass
+        response = self._send(process.ExecuteRequest(*args, working_dir=working_dir), register)
         assert response.code == ack.OK
         return response.pid
 
