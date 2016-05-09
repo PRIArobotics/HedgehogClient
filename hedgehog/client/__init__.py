@@ -8,6 +8,7 @@ _COMMAND = b'\x00'
 _CONNECT = b'\x01'
 _CLOSE = b'\x02'
 
+
 class ClientBackend:
     def __init__(self, endpoint, context=None):
         self._context = zmq.Context()
@@ -43,25 +44,27 @@ class ClientBackend:
             for sock, _ in poller.poll():
                 if sock is socket.socket:
                     # receive from the frontend
-                    header, msgs_raw = socket.recv_multipart_raw()
-                    type = msgs_raw[0]
+                    header, [cmd, *msgs_raw] = socket.recv_multipart_raw()
 
-                    if type == _CONNECT:
+                    if cmd == _CONNECT:
                         # send back the socket ID
-                        socket.send_raw(header, header[0])
-                    elif type == _CLOSE:
+                        identity = header[0]
+                        socket.send_raw(header, identity)
+                    elif cmd == _CLOSE:
                         # close the backend
                         poller.unregister(socket.socket)
                         poller.unregister(backend.socket)
-                    else:  # type == _COMMAND
+                    else:  # cmd == _COMMAND
                         # forward to the backend
-                        backend.send_multipart(header, [messages.parse(msg) for msg in msgs_raw[1:]])
+                        backend.send_multipart(header, [messages.parse(msg) for msg in msgs_raw])
                 else:  # sock is backend.socket
                     # receive from the backend
                     header, msgs = backend.recv_multipart()
 
                     # handle synchronous messages
-                    socket.send_multipart(header, [msg for msg in msgs if not msg.async])
+                    reps = [msg for msg in msgs if not msg.async]
+                    socket.send_multipart(header, reps)
+
                     # handle asynchronous messages
                     for msg in msgs:
                         if msg.async:
@@ -86,7 +89,7 @@ class ClientBackend:
         threading.Thread(target=target).start()
 
 
-def HedgehogClient(endpoint, context= None):
+def HedgehogClient(endpoint, context=None):
     backend = ClientBackend(endpoint, context=context)
     return backend.connect()
 
@@ -94,8 +97,9 @@ def HedgehogClient(endpoint, context= None):
 class _HedgehogClient:
     def __init__(self, socket):
         self.socket = sockets.ReqWrapper(socket)
+
         self.socket.send_raw(_CONNECT)
-        self.identifier = self.socket.recv_raw()
+        self.identity = self.socket.recv_raw()
 
     def _send(self, msg):
         self.socket.send_multipart_raw([_COMMAND, msg.serialize()])
