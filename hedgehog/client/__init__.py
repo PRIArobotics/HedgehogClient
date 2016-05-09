@@ -213,7 +213,6 @@ class _HedgehogClient:
         def register(rep):
             self.client_data.process_cbs[rep.pid] = (stream_cb, exit_cb)
         response = self._send(process.ExecuteRequest(*args, working_dir=working_dir), register)
-        assert response.code == ack.OK
         return response.pid
 
     def send_process_data(self, pid, chunk=b''):
