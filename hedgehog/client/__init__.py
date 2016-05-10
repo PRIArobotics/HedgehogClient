@@ -201,12 +201,8 @@ class _HedgehogClient:
         response = self._send(motor.SetPositionAction(port, position))
         assert response.code == ack.OK
 
-    def set_servo(self, port, position):
-        response = self._send(servo.Action(port, position))
-        assert response.code == ack.OK
-
-    def set_servo_state(self, port, active):
-        response = self._send(servo.StateAction(port, active))
+    def set_servo(self, port, active, position):
+        response = self._send(servo.Action(port, active, position))
         assert response.code == ack.OK
 
     def execute_process(self, *args, working_dir=None, stream_cb=None, exit_cb=None):

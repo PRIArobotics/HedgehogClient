@@ -125,19 +125,7 @@ class TestClient(unittest.TestCase):
         controller.start()
 
         client = HedgehogClient('inproc://controller', context=context)
-        self.assertEqual(client.set_servo(0, 0), None)
-        client.close()
-
-        controller.close()
-
-    def test_set_servo_state(self):
-        context = zmq.Context()
-
-        controller = HedgehogServer('inproc://controller', simulator.handler(), context=context)
-        controller.start()
-
-        client = HedgehogClient('inproc://controller', context=context)
-        self.assertEqual(client.set_servo_state(0, False), None)
+        self.assertEqual(client.set_servo(0, False, 0), None)
         client.close()
 
         controller.close()
