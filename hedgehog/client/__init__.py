@@ -1,7 +1,7 @@
 import threading
 import zmq
 from hedgehog.protocol import messages, sockets
-from hedgehog.protocol.messages import ack, analog, digital, motor, servo, process
+from hedgehog.protocol.messages import ack, io, analog, digital, motor, servo, process
 
 
 _COMMAND = b'\x00'
@@ -151,7 +151,7 @@ class _HedgehogClient:
         return response.value
 
     def set_analog_state(self, port, pullup):
-        response = self._send(analog.StateAction(port, pullup))
+        response = self._send(io.StateAction(port, io.ANALOG_PULLUP if pullup else io.ANALOG_FLOATING))
         assert response.code == ack.OK
 
     def get_digital(self, port):
@@ -159,12 +159,12 @@ class _HedgehogClient:
         assert response.port == port
         return response.value
 
-    def set_digital_state(self, port, pullup, output):
-        response = self._send(digital.StateAction(port, pullup, output))
+    def set_digital_state(self, port, pullup):
+        response = self._send(io.StateAction(port, io.DIGITAL_PULLUP if pullup else io.DIGITAL_FLOATING))
         assert response.code == ack.OK
 
     def set_digital_output(self, port, level):
-        response = self._send(digital.Action(port, level))
+        response = self._send(io.StateAction(port, io.OUTPUT_ON if level else io.OUTPUT_OFF))
         assert response.code == ack.OK
 
     def set_motor(self, port, state, amount=0, reached_state=motor.POWER, relative=None, absolute=None, reached_cb=None):

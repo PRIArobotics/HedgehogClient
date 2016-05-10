@@ -65,7 +65,7 @@ class TestClient(unittest.TestCase):
         controller.start()
 
         client = HedgehogClient('inproc://controller', context=context)
-        self.assertEqual(client.set_digital_state(0, False, False), None)
+        self.assertEqual(client.set_digital_state(0, False), None)
         client.close()
 
         controller.close()
