@@ -1,6 +1,6 @@
 import threading
 import zmq
-from hedgehog.protocol import messages, sockets
+from hedgehog.protocol import errors, messages, sockets
 from hedgehog.protocol.messages import ack, io, analog, digital, motor, servo, process
 
 
@@ -138,7 +138,14 @@ class _HedgehogClient:
         self.client_data = backend.client_data[identity]
 
     def _send(self, msg, handler=None):
-        return self._send_multipart((msg, handler))[0]
+        reply = self._send_multipart((msg, handler))[0]
+        if isinstance(reply, ack.Acknowledgement):
+            if reply.code != ack.OK:
+                raise errors.error(reply.code, reply.message)
+            return None
+        else:
+            return reply
+
 
     def _send_multipart(self, *cmds):
         self.client_data.out_of_band = [cmd[1] for cmd in cmds]
@@ -151,8 +158,7 @@ class _HedgehogClient:
         return response.value
 
     def set_analog_state(self, port, pullup):
-        response = self._send(io.StateAction(port, io.ANALOG_PULLUP if pullup else io.ANALOG_FLOATING))
-        assert response.code == ack.OK
+        self._send(io.StateAction(port, io.ANALOG_PULLUP if pullup else io.ANALOG_FLOATING))
 
     def get_digital(self, port):
         response = self._send(digital.Request(port))
@@ -160,20 +166,17 @@ class _HedgehogClient:
         return response.value
 
     def set_digital_state(self, port, pullup):
-        response = self._send(io.StateAction(port, io.DIGITAL_PULLUP if pullup else io.DIGITAL_FLOATING))
-        assert response.code == ack.OK
+        self._send(io.StateAction(port, io.DIGITAL_PULLUP if pullup else io.DIGITAL_FLOATING))
 
     def set_digital_output(self, port, level):
-        response = self._send(io.StateAction(port, io.OUTPUT_ON if level else io.OUTPUT_OFF))
-        assert response.code == ack.OK
+        self._send(io.StateAction(port, io.OUTPUT_ON if level else io.OUTPUT_OFF))
 
     def set_motor(self, port, state, amount=0, reached_state=motor.POWER, relative=None, absolute=None, reached_cb=None):
         if reached_cb is not None and relative is None and absolute is None:
             raise ValueError("callback given, but no end position")
         def register(rep):
             self.client_data.motor_cbs[port] = (reached_cb,)
-        response = self._send(motor.Action(port, state, amount, reached_state, relative, absolute), register)
-        assert response.code == ack.OK
+        self._send(motor.Action(port, state, amount, reached_state, relative, absolute), register)
 
     def move(self, port, amount, state=motor.POWER):
         self.set_motor(port, state, amount)
@@ -198,12 +201,10 @@ class _HedgehogClient:
         return position
 
     def set_motor_position(self, port, position):
-        response = self._send(motor.SetPositionAction(port, position))
-        assert response.code == ack.OK
+        self._send(motor.SetPositionAction(port, position))
 
     def set_servo(self, port, active, position):
-        response = self._send(servo.Action(port, active, position))
-        assert response.code == ack.OK
+        self._send(servo.Action(port, active, position))
 
     def execute_process(self, *args, working_dir=None, stream_cb=None, exit_cb=None):
         def register(rep):
@@ -212,8 +213,7 @@ class _HedgehogClient:
         return response.pid
 
     def send_process_data(self, pid, chunk=b''):
-        response = self._send(process.StreamAction(pid, process.STDIN, chunk))
-        assert response.code == ack.OK
+        self._send(process.StreamAction(pid, process.STDIN, chunk))
 
     def close(self):
         self.socket.send_raw(_CLOSE)
