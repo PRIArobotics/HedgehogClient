@@ -2,6 +2,7 @@ import unittest
 import zmq
 from hedgehog.server import HedgehogServer, simulator
 from hedgehog.client import HedgehogClient
+from hedgehog.protocol import errors
 from hedgehog.protocol.messages.motor import POWER, BRAKE, VELOCITY
 from hedgehog.protocol.messages.process import STDOUT, STDERR
 
@@ -19,6 +20,24 @@ class TestClient(unittest.TestCase):
         self.assertEqual(client2.get_analog(0), 0)
         client1.close()
         client2.close()
+
+        controller.close()
+
+    def test_unsupported(self):
+        context = zmq.Context()
+
+        from hedgehog.server import handlers
+        from hedgehog.server.handlers.hardware import HardwareHandler
+        from hedgehog.server.handlers.process import ProcessHandler
+        from hedgehog.server.hardware import HardwareAdapter
+        handlers = handlers.to_dict(HardwareHandler(HardwareAdapter()), ProcessHandler())
+        controller = HedgehogServer('inproc://controller', handlers, context=context)
+        controller.start()
+
+        client = HedgehogClient('inproc://controller', context=context)
+        with self.assertRaises(errors.UnsupportedCommandError):
+            client.get_analog(0)
+        client.close()
 
         controller.close()
 
