@@ -146,7 +146,6 @@ class _HedgehogClient:
         else:
             return reply
 
-
     def _send_multipart(self, *cmds):
         self.client_data.out_of_band = [cmd[1] for cmd in cmds]
         self.socket.send_multipart_raw([_COMMAND] + [cmd[0].serialize() for cmd in cmds])
