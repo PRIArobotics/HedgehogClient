@@ -99,18 +99,17 @@ class TestClient(unittest.TestCase):
                 process_info[fileno].append((pid, chunk))
 
             def on_exit(client, pid, exit_code):
-                process_info['exit_pid'] = pid
-                process_info['exit_code'] = exit_code
+                process_info['exit'] = (pid, exit_code)
 
                 on_exit_sock = context.socket(zmq.PAIR)
                 on_exit_sock.connect('inproc://on_exit')
                 on_exit_sock.send(b'')
 
             pid = client.execute_process('echo', 'asdf', stream_cb=on_stream, exit_cb=on_exit)
+            client.send_process_data(pid)
 
             on_exit_sock.recv()
-            self.assertEqual(process_info['exit_pid'], pid)
-            self.assertEqual(process_info['exit_code'], 0)
+            self.assertEqual(process_info['exit'], (pid, 0))
             for pid_, _ in process_info[STDOUT]:
                 self.assertEqual(pid_, pid)
             for pid_, _ in process_info[STDERR]:
