@@ -2,7 +2,7 @@ import threading
 import zmq
 from hedgehog.protocol import errors, messages, sockets
 from hedgehog.protocol.messages import ack, io, analog, digital, motor, servo, process
-from .async import AsyncRegistry
+from .async import AsyncRegistry, MotorUpdateHandler, ProcessUpdateHandler
 
 
 _COMMAND = b'\x00'
@@ -123,7 +123,7 @@ class _HedgehogClient:
             return reply
 
     def _send_multipart(self, *cmds):
-        self.async_registry.register_cbs = [cmd[1] for cmd in cmds]
+        self.async_registry.new_handlers = [cmd[1] for cmd in cmds]
         self.socket.send_multipart_raw([_COMMAND] + [cmd[0].serialize() for cmd in cmds])
         return self.socket.recv_multipart()
 
@@ -147,12 +147,13 @@ class _HedgehogClient:
         self._send(io.StateAction(port, io.OUTPUT_ON if level else io.OUTPUT_OFF))
 
     def set_motor(self, port, state, amount=0, reached_state=motor.POWER, relative=None, absolute=None, on_reached=None):
-        if on_reached is not None and relative is None and absolute is None:
-            raise ValueError("callback given, but no end position")
-        def register(rep):
-            assert rep == ack.Acknowledgement()
-            self.async_registry.motor_cbs[port] = (on_reached,)
-        self._send(motor.Action(port, state, amount, reached_state, relative, absolute), register)
+        if on_reached is not None:
+            if relative is None and absolute is None:
+                raise ValueError("callback given, but no end position")
+            handler = MotorUpdateHandler(port, on_reached)
+        else:
+            handler = None
+        self._send(motor.Action(port, state, amount, reached_state, relative, absolute), handler)
 
     def move(self, port, amount, state=motor.POWER):
         self.set_motor(port, state, amount)
@@ -183,10 +184,11 @@ class _HedgehogClient:
         self._send(servo.Action(port, active, position))
 
     def execute_process(self, *args, working_dir=None, on_stream=None, on_exit=None):
-        def register(rep):
-            if type(rep) is process.ExecuteReply:
-                self.async_registry.process_cbs[rep.pid] = (on_stream, on_exit)
-        response = self._send(process.ExecuteRequest(*args, working_dir=working_dir), register)
+        if on_stream is not None or on_exit is not None:
+            handler = ProcessUpdateHandler(on_stream, on_exit)
+        else:
+            handler = None
+        response = self._send(process.ExecuteRequest(*args, working_dir=working_dir), handler)
         return response.pid
 
     def send_process_data(self, pid, chunk=b''):
