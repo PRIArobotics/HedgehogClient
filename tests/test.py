@@ -1,5 +1,6 @@
 import unittest
 import zmq
+import time
 from hedgehog.server import HedgehogServer, simulator
 from hedgehog.client import HedgehogClient
 from hedgehog.protocol import errors
@@ -96,6 +97,7 @@ class TestClient(unittest.TestCase):
             }
 
             def on_stream(client, pid, fileno, chunk):
+                time.sleep(0.1)
                 process_info[fileno].append((pid, chunk))
 
             def on_exit(client, pid, exit_code):
