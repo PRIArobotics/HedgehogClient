@@ -174,6 +174,7 @@ class _HedgehogClient:
         if on_reached is not None and relative is None and absolute is None:
             raise ValueError("callback given, but no end position")
         def register(rep):
+            assert rep == ack.Acknowledgement()
             self.client_data.motor_cbs[port] = (on_reached,)
         self._send(motor.Action(port, state, amount, reached_state, relative, absolute), register)
 
@@ -207,7 +208,8 @@ class _HedgehogClient:
 
     def execute_process(self, *args, working_dir=None, on_stream=None, on_exit=None):
         def register(rep):
-            self.client_data.process_cbs[rep.pid] = (on_stream, on_exit)
+            if type(rep) is process.ExecuteReply:
+                self.client_data.process_cbs[rep.pid] = (on_stream, on_exit)
         response = self._send(process.ExecuteRequest(*args, working_dir=working_dir), register)
         return response.pid
 
