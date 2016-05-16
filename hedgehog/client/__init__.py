@@ -9,18 +9,18 @@ _CONNECT = b'\x01'
 _CLOSE = b'\x02'
 
 
-class ClientData:
+class AsyncRegistry:
     def __init__(self):
-        self.out_of_band = None
+        self.register_cbs = None
         self.motor_cbs = {}
         self.process_cbs = {}
 
-    def handle_out_of_band(self, reps):
-        assert len(self.out_of_band) == len(reps)
-        for handler, rep in zip(self.out_of_band, reps):
-            if handler is not None:
-                handler(rep)
-        self.out_of_band = None
+    def handle_register(self, reps):
+        assert len(self.register_cbs) == len(reps)
+        for register, rep in zip(self.register_cbs, reps):
+            if register is not None:
+                register(rep)
+        self.register_cbs = None
 
     def handle_async(self, backend, msg):
         if type(msg) is messages.motor.StateUpdate:
@@ -42,7 +42,7 @@ class ClientBackend:
         self._context = zmq.Context()
         self.context = context or zmq.Context.instance()
         self.endpoint = endpoint
-        self.client_data = {}
+        self.async_registries = {}
 
         signal = self._context.socket(zmq.PAIR)
         signal.bind('inproc://signal')
@@ -78,7 +78,7 @@ class ClientBackend:
                     if cmd == _CONNECT:
                         # send back the socket ID
                         identity = header[0]
-                        self.client_data[identity] = ClientData()
+                        self.async_registries[identity] = AsyncRegistry()
                         socket.send_raw(header, identity)
                     elif cmd == _CLOSE:
                         # close the backend
@@ -94,17 +94,17 @@ class ClientBackend:
                     assert len(msgs) > 0
 
                     identity = header[0]
-                    client_data = self.client_data[identity]
+                    async_registry = self.async_registries[identity]
 
                     # either, all messages are replies corresponding to the previous requests,
                     # or all messages are asynchronous updates
                     if msgs[0].async:
                         # handle asynchronous messages
                         for msg in msgs:
-                            client_data.handle_async(self, msg)
+                            async_registry.handle_async(self, msg)
                     else:
                         # handle synchronous messages
-                        client_data.handle_out_of_band(msgs)
+                        async_registry.handle_register(msgs)
                         socket.send_multipart(header, msgs)
 
 
@@ -138,7 +138,7 @@ class _HedgehogClient:
         identity = self.socket.recv_raw()
 
         # TODO writes in the backend may interfere with this read
-        self.client_data = backend.client_data[identity]
+        self.async_registry = backend.async_registries[identity]
 
     def _send(self, msg, handler=None):
         reply = self._send_multipart((msg, handler))[0]
@@ -150,7 +150,7 @@ class _HedgehogClient:
             return reply
 
     def _send_multipart(self, *cmds):
-        self.client_data.out_of_band = [cmd[1] for cmd in cmds]
+        self.async_registry.register_cbs = [cmd[1] for cmd in cmds]
         self.socket.send_multipart_raw([_COMMAND] + [cmd[0].serialize() for cmd in cmds])
         return self.socket.recv_multipart()
 
@@ -178,7 +178,7 @@ class _HedgehogClient:
             raise ValueError("callback given, but no end position")
         def register(rep):
             assert rep == ack.Acknowledgement()
-            self.client_data.motor_cbs[port] = (on_reached,)
+            self.async_registry.motor_cbs[port] = (on_reached,)
         self._send(motor.Action(port, state, amount, reached_state, relative, absolute), register)
 
     def move(self, port, amount, state=motor.POWER):
@@ -212,7 +212,7 @@ class _HedgehogClient:
     def execute_process(self, *args, working_dir=None, on_stream=None, on_exit=None):
         def register(rep):
             if type(rep) is process.ExecuteReply:
-                self.client_data.process_cbs[rep.pid] = (on_stream, on_exit)
+                self.async_registry.process_cbs[rep.pid] = (on_stream, on_exit)
         response = self._send(process.ExecuteRequest(*args, working_dir=working_dir), register)
         return response.pid
 
