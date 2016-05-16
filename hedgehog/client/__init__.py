@@ -22,6 +22,20 @@ class ClientData:
                 handler(rep)
         self.out_of_band = None
 
+    def handle_async(self, backend, msg):
+        if type(msg) is messages.motor.StateUpdate:
+            reached_cb, = self.process_cbs[msg.pid]
+            if reached_cb is not None:
+                backend.spawn(reached_cb, msg.port, msg.state)
+        if type(msg) is messages.process.StreamUpdate:
+            stream_cb, _ = self.process_cbs[msg.pid]
+            if stream_cb is not None:
+                backend.spawn(stream_cb, msg.pid, msg.fileno, msg.chunk)
+        if type(msg) is messages.process.ExitUpdate:
+            _, exit_cb = self.process_cbs[msg.pid]
+            if exit_cb is not None:
+                backend.spawn(exit_cb, msg.pid, msg.exit_code)
+
 
 class ClientBackend:
     def __init__(self, endpoint, context=None):
@@ -87,18 +101,7 @@ class ClientBackend:
                     if msgs[0].async:
                         # handle asynchronous messages
                         for msg in msgs:
-                            if type(msg) is messages.motor.StateUpdate:
-                                reached_cb, = client_data.process_cbs[msg.pid]
-                                if reached_cb is not None:
-                                    self.spawn(reached_cb, msg.port, msg.state)
-                            if type(msg) is messages.process.StreamUpdate:
-                                stream_cb, _ = client_data.process_cbs[msg.pid]
-                                if stream_cb is not None:
-                                    self.spawn(stream_cb, msg.pid, msg.fileno, msg.chunk)
-                            if type(msg) is messages.process.ExitUpdate:
-                                _, exit_cb = client_data.process_cbs[msg.pid]
-                                if exit_cb is not None:
-                                    self.spawn(exit_cb, msg.pid, msg.exit_code)
+                            client_data.handle_async(self, msg)
                     else:
                         # handle synchronous messages
                         client_data.handle_out_of_band(msgs)
