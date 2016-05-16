@@ -170,21 +170,21 @@ class _HedgehogClient:
     def set_digital_output(self, port, level):
         self._send(io.StateAction(port, io.OUTPUT_ON if level else io.OUTPUT_OFF))
 
-    def set_motor(self, port, state, amount=0, reached_state=motor.POWER, relative=None, absolute=None, reached_cb=None):
-        if reached_cb is not None and relative is None and absolute is None:
+    def set_motor(self, port, state, amount=0, reached_state=motor.POWER, relative=None, absolute=None, on_reached=None):
+        if on_reached is not None and relative is None and absolute is None:
             raise ValueError("callback given, but no end position")
         def register(rep):
-            self.client_data.motor_cbs[port] = (reached_cb,)
+            self.client_data.motor_cbs[port] = (on_reached,)
         self._send(motor.Action(port, state, amount, reached_state, relative, absolute), register)
 
     def move(self, port, amount, state=motor.POWER):
         self.set_motor(port, state, amount)
 
-    def move_relative_position(self, port, amount, relative, state=motor.POWER, reached_cb=None):
-        self.set_motor(port, state, amount, relative=relative, reached_cb=reached_cb)
+    def move_relative_position(self, port, amount, relative, state=motor.POWER, on_reached=None):
+        self.set_motor(port, state, amount, relative=relative, on_reached=on_reached)
 
-    def move_absolute_position(self, port, amount, absolute, state=motor.POWER, reached_cb=None):
-        self.set_motor(port, state, amount, absolute=absolute, reached_cb=reached_cb)
+    def move_absolute_position(self, port, amount, absolute, state=motor.POWER, on_reached=None):
+        self.set_motor(port, state, amount, absolute=absolute, on_reached=on_reached)
 
     def get_motor(self, port):
         response = self._send(motor.Request(port))
@@ -205,9 +205,9 @@ class _HedgehogClient:
     def set_servo(self, port, active, position):
         self._send(servo.Action(port, active, position))
 
-    def execute_process(self, *args, working_dir=None, stream_cb=None, exit_cb=None):
+    def execute_process(self, *args, working_dir=None, on_stream=None, on_exit=None):
         def register(rep):
-            self.client_data.process_cbs[rep.pid] = (stream_cb, exit_cb)
+            self.client_data.process_cbs[rep.pid] = (on_stream, on_exit)
         response = self._send(process.ExecuteRequest(*args, working_dir=working_dir), register)
         return response.pid
 
