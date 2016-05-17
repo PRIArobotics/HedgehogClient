@@ -13,8 +13,13 @@ _CLOSE = b'\x02'
 class ClientBackend:
     def __init__(self, endpoint, ctx=None):
         self._ctx = zmq.Context()
-        self.ctx = ctx or zmq.Context.instance()
-        self.endpoint = endpoint
+
+        if ctx is None:
+            ctx = zmq.Context.instance()
+        backend = ctx.socket(zmq.DEALER)
+        backend.connect(endpoint)
+        self.backend = sockets.DealerRouterWrapper(backend)
+
         self.async_registries = {}
 
         signal = self._ctx.socket(zmq.PAIR)
@@ -30,10 +35,6 @@ class ClientBackend:
         socket.bind('inproc://socket')
         socket = sockets.DealerRouterWrapper(socket)
 
-        backend = self.ctx.socket(zmq.DEALER)
-        backend.connect(self.endpoint)
-        backend = sockets.DealerRouterWrapper(backend)
-
         signal = self._ctx.socket(zmq.PAIR)
         signal.connect('inproc://signal')
         signal.send(b'')
@@ -41,7 +42,7 @@ class ClientBackend:
 
         poller = zmq.Poller()
         poller.register(socket.socket, zmq.POLLIN)
-        poller.register(backend.socket, zmq.POLLIN)
+        poller.register(self.backend.socket, zmq.POLLIN)
         while len(poller.sockets) > 0:
             for sock, _ in poller.poll():
                 if sock is socket.socket:
@@ -56,14 +57,14 @@ class ClientBackend:
                     elif cmd == _CLOSE:
                         # close the backend
                         poller.unregister(socket.socket)
-                        poller.unregister(backend.socket)
+                        poller.unregister(self.backend.socket)
                     else:  # cmd == _COMMAND
                         # forward to the backend
                         assert len(msgs_raw) > 0
-                        backend.send_multipart(header, [messages.parse(msg) for msg in msgs_raw])
+                        self.backend.send_multipart(header, [messages.parse(msg) for msg in msgs_raw])
                 else:  # sock is backend.socket
                     # receive from the backend
-                    header, msgs = backend.recv_multipart()
+                    header, msgs = self.backend.recv_multipart()
                     assert len(msgs) > 0
 
                     identity = header[0]
@@ -82,7 +83,7 @@ class ClientBackend:
 
 
         socket.close()
-        backend.close()
+        self.backend.close()
 
     def connect(self):
         socket = self._ctx.socket(zmq.REQ)
