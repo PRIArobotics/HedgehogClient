@@ -107,7 +107,7 @@ class TestClient(unittest.TestCase):
                 on_exit_sock.connect('inproc://on_exit')
                 on_exit_sock.send(b'')
 
-            pid = client.execute_process('echo', 'asdf', on_stream=on_stream, on_exit=on_exit)
+            pid = client.execute_process('echo', 'asdf', on_stdout=on_stream, on_stderr=on_stream, on_exit=on_exit)
             client.send_process_data(pid)
 
             on_exit_sock.recv()

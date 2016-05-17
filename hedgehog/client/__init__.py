@@ -183,9 +183,9 @@ class _HedgehogClient:
     def set_servo(self, port, active, position):
         self._send(servo.Action(port, active, position))
 
-    def execute_process(self, *args, working_dir=None, on_stream=None, on_exit=None):
-        if on_stream is not None or on_exit is not None:
-            handler = ProcessUpdateHandler(on_stream, on_exit)
+    def execute_process(self, *args, working_dir=None, on_stdout=None, on_stderr=None, on_exit=None):
+        if on_stdout is not None or on_stderr is not None or on_exit is not None:
+            handler = ProcessUpdateHandler(on_stdout, on_stderr, on_exit)
         else:
             handler = None
         response = self._send(process.ExecuteRequest(*args, working_dir=working_dir), handler)

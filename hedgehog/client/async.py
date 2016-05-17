@@ -54,9 +54,12 @@ class ProcessUpdateHandler(AsyncUpdateHandler):
         return self.rep.pid
 
     def handle_update(self, backend, update):
-        on_stream, on_exit = self.args
-        if type(update) is process.StreamUpdate and on_stream is not None:
-            backend.spawn(on_stream, update.pid, update.fileno, update.chunk)
+        on_stdout, on_stderr, on_exit = self.args
+        if type(update) is process.StreamUpdate:
+            if update.fileno == process.STDOUT and on_stdout is not None:
+                backend.spawn(on_stdout, update.pid, update.fileno, update.chunk)
+            if update.fileno == process.STDERR and on_stderr is not None:
+                backend.spawn(on_stderr, update.pid, update.fileno, update.chunk)
         if type(update) is process.ExitUpdate and on_exit is not None:
             backend.spawn(on_exit, update.pid, update.exit_code)
 
