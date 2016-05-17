@@ -6,9 +6,8 @@ class AsyncUpdateHandler:
     def updates(self):
         raise NotImplementedError
 
-    def __init__(self, *args):
+    def __init__(self):
         self.rep = None
-        self.args = args
 
     @classmethod
     def update_key(cls, update):
@@ -28,6 +27,11 @@ class AsyncUpdateHandler:
 class MotorUpdateHandler(AsyncUpdateHandler):
     updates = (motor.StateUpdate,)
 
+    def __init__(self, port, on_reached):
+        super().__init__()
+        self.port = port
+        self.on_reached = on_reached
+
     @classmethod
     def update_key(cls, update):
         return update.port
@@ -35,15 +39,20 @@ class MotorUpdateHandler(AsyncUpdateHandler):
     @property
     def key(self):
         port, _ = self.args
-        return port
+        return self.port
 
     def handle_update(self, backend, update):
-        port, on_reached = self.args
-        backend.spawn(on_reached, port, update.state)
+        backend.spawn(self.on_reached, self.port, update.state)
 
 
 class ProcessUpdateHandler(AsyncUpdateHandler):
     updates = (process.StreamUpdate, process.ExitUpdate)
+
+    def __init__(self, on_stdout, on_stderr, on_exit):
+        super().__init__()
+        self.on_stdout = on_stdout
+        self.on_stderr = on_stderr
+        self.on_exit = on_exit
 
     @classmethod
     def update_key(cls, update):
@@ -54,14 +63,13 @@ class ProcessUpdateHandler(AsyncUpdateHandler):
         return self.rep.pid
 
     def handle_update(self, backend, update):
-        on_stdout, on_stderr, on_exit = self.args
         if type(update) is process.StreamUpdate:
-            if update.fileno == process.STDOUT and on_stdout is not None:
-                backend.spawn(on_stdout, update.pid, update.fileno, update.chunk)
-            if update.fileno == process.STDERR and on_stderr is not None:
-                backend.spawn(on_stderr, update.pid, update.fileno, update.chunk)
-        if type(update) is process.ExitUpdate and on_exit is not None:
-            backend.spawn(on_exit, update.pid, update.exit_code)
+            if update.fileno == process.STDOUT and self.on_stdout is not None:
+                backend.spawn(self.on_stdout, update.pid, update.fileno, update.chunk)
+            if update.fileno == process.STDERR and self.on_stderr is not None:
+                backend.spawn(self.on_stderr, update.pid, update.fileno, update.chunk)
+        if type(update) is process.ExitUpdate and self.on_exit is not None:
+            backend.spawn(self.on_exit, update.pid, update.exit_code)
 
 
 handler_types = (MotorUpdateHandler, ProcessUpdateHandler)
