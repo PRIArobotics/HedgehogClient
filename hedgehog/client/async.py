@@ -1,5 +1,6 @@
 import threading
 import zmq
+from hedgehog.utils import zmq as zmq_utils
 from hedgehog.protocol import messages
 from hedgehog.protocol.messages import ack, motor, process
 
@@ -76,133 +77,84 @@ class ProcessUpdateHandler(AsyncUpdateHandler):
         elif self.on_stdout is not None and self.on_stderr is not None:
             # both streams; the complicated case
             ctx = zmq.Context()
+            stdout_a, stdout_b = zmq_utils.pipe(ctx)
+            stderr_a, stderr_b = zmq_utils.pipe(ctx)
+            stderr_eof_a, stderr_eof_b = zmq_utils.pipe(ctx)
 
-            def stdout_handler():
-                stdout = ctx.socket(zmq.PAIR)
-                stdout.connect('inproc://stdout')
-
-                stderr_eof = ctx.socket(zmq.PAIR)
-                stderr_eof.bind('inproc://stderr_eof')
-
-                threading.Thread(target=stderr_handler).start()
-
-                client = backend.connect()
-
+            def stdout_handler(client):
                 while True:
-                    update = messages.parse(stdout.recv())
+                    update = messages.parse(stdout_b.recv())
                     self.on_stdout(client, update.pid, update.fileno, update.chunk)
                     if update.chunk == b'':
                         break
 
-                stderr_eof.recv()
-                stderr_eof.close()
+                stderr_eof_b.recv()
+                stderr_eof_b.close()
 
-                update = messages.parse(stdout.recv())
-                stdout.close()
+                update = messages.parse(stdout_b.recv())
+                stdout_b.close()
 
                 if self.on_exit is not None:
                     self.on_exit(client, update.pid, update.exit_code)
 
-            def stderr_handler():
-                stderr = ctx.socket(zmq.PAIR)
-                stderr.connect('inproc://stderr')
-
-                stderr_eof = ctx.socket(zmq.PAIR)
-                stderr_eof.connect('inproc://stderr_eof')
-
-                start = ctx.socket(zmq.PAIR)
-                start.connect('inproc://start')
-                start.send(b'')
-                start.close()
-
-                client = backend.connect()
-
+            def stderr_handler(client):
                 while True:
-                    update = messages.parse(stderr.recv())
+                    update = messages.parse(stderr_b.recv())
                     self.on_stderr(client, update.pid, update.fileno, update.chunk)
                     if update.chunk == b'':
                         break
-                stderr.close()
+                stderr_b.close()
 
-                stderr_eof.send(b'')
-                stderr_eof.close()
+                stderr_eof_a.send(b'')
+                stderr_eof_a.close()
 
-            stdout = ctx.socket(zmq.PAIR)
-            stdout.bind('inproc://stdout')
-
-            stderr = ctx.socket(zmq.PAIR)
-            stderr.bind('inproc://stderr')
-
-            start = ctx.socket(zmq.PAIR)
-            start.bind('inproc://start')
-
-            threading.Thread(target=stdout_handler).start()
-
-            start.recv()
-            start.close()
+            backend.spawn(stdout_handler)
+            backend.spawn(stderr_handler)
 
             def update_handler(backend, update):
                 if type(update) is process.StreamUpdate:
                     if update.fileno == process.STDOUT:
-                        stdout.send(update.serialize())
+                        stdout_a.send(update.serialize())
                     elif update.fileno == process.STDERR:
-                        stderr.send(update.serialize())
+                        stderr_a.send(update.serialize())
                         if update.chunk == b'':
-                            stderr.close()
+                            stderr_a.close()
                 elif type(update) is process.ExitUpdate:
-                    stdout.send(update.serialize())
-                    stdout.close()
+                    stdout_a.send(update.serialize())
+                    stdout_a.close()
 
             self.update_handler = update_handler
         else:
             # one stream
             ctx = zmq.Context()
+            stream_a, stream_b = zmq_utils.pipe(ctx)
 
             if self.on_stdout is not None:
                 fileno, handler = process.STDOUT, self.on_stdout
             else:
                 fileno, handler = process.STDERR, self.on_stderr
 
-            def stream_handler():
-                stream = ctx.socket(zmq.PAIR)
-                stream.connect('inproc://stream')
-
-                start = ctx.socket(zmq.PAIR)
-                start.connect('inproc://start')
-                start.send(b'')
-                start.close()
-
-                client = backend.connect()
-
+            def stream_handler(client):
                 while True:
-                    update = messages.parse(stream.recv())
+                    update = messages.parse(stream_b.recv())
                     handler(client, update.pid, update.fileno, update.chunk)
                     if update.chunk == b'':
                         break
 
-                update = messages.parse(stream.recv())
-                stream.close()
+                update = messages.parse(stream_b.recv())
+                stream_b.close()
 
                 if self.on_exit is not None:
                     self.on_exit(client, update.pid, update.exit_code)
 
-            stream = ctx.socket(zmq.PAIR)
-            stream.bind('inproc://stream')
-
-            start = ctx.socket(zmq.PAIR)
-            start.bind('inproc://start')
-
-            threading.Thread(target=stream_handler).start()
-
-            start.recv()
-            start.close()
+            backend.spawn(stream_handler)
 
             def update_handler(backend, update):
                 if type(update) is process.StreamUpdate and update.fileno == fileno:
-                    stream.send(update.serialize())
+                    stream_a.send(update.serialize())
                 elif type(update) is process.ExitUpdate:
-                    stream.send(update.serialize())
-                    stream.close()
+                    stream_a.send(update.serialize())
+                    stream_a.close()
 
             self.update_handler = update_handler
 

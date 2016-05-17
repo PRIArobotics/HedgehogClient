@@ -1,6 +1,7 @@
 import unittest
 import zmq
 import time
+from hedgehog.utils import zmq as zmq_utils
 from hedgehog.server import HedgehogServer, simulator
 from hedgehog.client import HedgehogClient
 from hedgehog.protocol import errors
@@ -88,8 +89,7 @@ class TestClient(unittest.TestCase):
         ctx = zmq.Context()
         with HedgehogServer('inproc://controller', simulator.handler(), ctx=ctx), \
              HedgehogClient('inproc://controller', ctx=ctx) as client:
-            on_exit_sock = ctx.socket(zmq.PAIR)
-            on_exit_sock.bind('inproc://on_exit')
+            exit_a, exit_b = zmq_utils.pipe(ctx)
 
             process_info = {
             }
@@ -97,22 +97,19 @@ class TestClient(unittest.TestCase):
             def on_exit(client, pid, exit_code):
                 process_info['exit'] = (pid, exit_code)
 
-                on_exit_sock = ctx.socket(zmq.PAIR)
-                on_exit_sock.connect('inproc://on_exit')
-                on_exit_sock.send(b'')
+                exit_b.send(b'')
 
             pid = client.execute_process('echo', 'asdf', on_exit=on_exit)
             client.send_process_data(pid)
 
-            on_exit_sock.recv()
+            exit_a.recv()
             self.assertEqual(process_info['exit'], (pid, 0))
 
     def test_execute_process_one_stream(self):
         ctx = zmq.Context()
         with HedgehogServer('inproc://controller', simulator.handler(), ctx=ctx), \
              HedgehogClient('inproc://controller', ctx=ctx) as client:
-            on_exit_sock = ctx.socket(zmq.PAIR)
-            on_exit_sock.bind('inproc://on_exit')
+            exit_a, exit_b = zmq_utils.pipe(ctx)
 
             process_info = {
                 STDOUT: [],
@@ -125,14 +122,12 @@ class TestClient(unittest.TestCase):
             def on_exit(client, pid, exit_code):
                 process_info['exit'] = (pid, exit_code)
 
-                on_exit_sock = ctx.socket(zmq.PAIR)
-                on_exit_sock.connect('inproc://on_exit')
-                on_exit_sock.send(b'')
+                exit_b.send(b'')
 
             pid = client.execute_process('echo', 'asdf', on_stdout=on_stream, on_exit=on_exit)
             client.send_process_data(pid)
 
-            on_exit_sock.recv()
+            exit_a.recv()
             self.assertEqual(process_info['exit'], (pid, 0))
             for pid_, _ in process_info[STDOUT]:
                 self.assertEqual(pid_, pid)
@@ -142,8 +137,7 @@ class TestClient(unittest.TestCase):
         ctx = zmq.Context()
         with HedgehogServer('inproc://controller', simulator.handler(), ctx=ctx), \
              HedgehogClient('inproc://controller', ctx=ctx) as client:
-            on_exit_sock = ctx.socket(zmq.PAIR)
-            on_exit_sock.bind('inproc://on_exit')
+            exit_a, exit_b = zmq_utils.pipe(ctx)
 
             process_info = {
                 STDOUT: [],
@@ -157,14 +151,12 @@ class TestClient(unittest.TestCase):
             def on_exit(client, pid, exit_code):
                 process_info['exit'] = (pid, exit_code)
 
-                on_exit_sock = ctx.socket(zmq.PAIR)
-                on_exit_sock.connect('inproc://on_exit')
-                on_exit_sock.send(b'')
+                exit_b.send(b'')
 
             pid = client.execute_process('echo', 'asdf', on_stdout=on_stream, on_stderr=on_stream, on_exit=on_exit)
             client.send_process_data(pid)
 
-            on_exit_sock.recv()
+            exit_a.recv()
             self.assertEqual(process_info['exit'], (pid, 0))
             for pid_, _ in process_info[STDOUT]:
                 self.assertEqual(pid_, pid)
