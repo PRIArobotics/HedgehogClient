@@ -11,13 +11,13 @@ _CLOSE = b'\x02'
 
 
 class ClientBackend:
-    def __init__(self, endpoint, context=None):
-        self._context = zmq.Context()
-        self.context = context or zmq.Context.instance()
+    def __init__(self, endpoint, ctx=None):
+        self._ctx = zmq.Context()
+        self.ctx = ctx or zmq.Context.instance()
         self.endpoint = endpoint
         self.async_registries = {}
 
-        signal = self._context.socket(zmq.PAIR)
+        signal = self._ctx.socket(zmq.PAIR)
         signal.bind('inproc://signal')
 
         threading.Thread(target=self.run).start()
@@ -26,15 +26,15 @@ class ClientBackend:
         signal.close()
 
     def run(self):
-        socket = self._context.socket(zmq.ROUTER)
+        socket = self._ctx.socket(zmq.ROUTER)
         socket.bind('inproc://socket')
         socket = sockets.DealerRouterWrapper(socket)
 
-        backend = self.context.socket(zmq.DEALER)
+        backend = self.ctx.socket(zmq.DEALER)
         backend.connect(self.endpoint)
         backend = sockets.DealerRouterWrapper(backend)
 
-        signal = self._context.socket(zmq.PAIR)
+        signal = self._ctx.socket(zmq.PAIR)
         signal.connect('inproc://signal')
         signal.send(b'')
         signal.close()
@@ -85,7 +85,7 @@ class ClientBackend:
         backend.close()
 
     def connect(self):
-        socket = self._context.socket(zmq.REQ)
+        socket = self._ctx.socket(zmq.REQ)
         socket.connect('inproc://socket')
 
         return _HedgehogClient(self, socket)
@@ -98,8 +98,8 @@ class ClientBackend:
         threading.Thread(target=target, args=args, kwargs=kwargs).start()
 
 
-def HedgehogClient(endpoint, context=None):
-    backend = ClientBackend(endpoint, context=context)
+def HedgehogClient(endpoint, ctx=None):
+    backend = ClientBackend(endpoint, ctx=ctx)
     return backend.connect()
 
 

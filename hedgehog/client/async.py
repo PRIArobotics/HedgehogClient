@@ -75,13 +75,13 @@ class ProcessUpdateHandler(AsyncUpdateHandler):
             self.update_handler = update_handler
         elif self.on_stdout is not None and self.on_stderr is not None:
             # both streams; the complicated case
-            context = zmq.Context()
+            ctx = zmq.Context()
 
             def stdout_handler():
-                stdout = context.socket(zmq.PAIR)
+                stdout = ctx.socket(zmq.PAIR)
                 stdout.connect('inproc://stdout')
 
-                stderr_eof = context.socket(zmq.PAIR)
+                stderr_eof = ctx.socket(zmq.PAIR)
                 stderr_eof.bind('inproc://stderr_eof')
 
                 threading.Thread(target=stderr_handler).start()
@@ -104,13 +104,13 @@ class ProcessUpdateHandler(AsyncUpdateHandler):
                     self.on_exit(client, update.pid, update.exit_code)
 
             def stderr_handler():
-                stderr = context.socket(zmq.PAIR)
+                stderr = ctx.socket(zmq.PAIR)
                 stderr.connect('inproc://stderr')
 
-                stderr_eof = context.socket(zmq.PAIR)
+                stderr_eof = ctx.socket(zmq.PAIR)
                 stderr_eof.connect('inproc://stderr_eof')
 
-                start = context.socket(zmq.PAIR)
+                start = ctx.socket(zmq.PAIR)
                 start.connect('inproc://start')
                 start.send(b'')
                 start.close()
@@ -127,13 +127,13 @@ class ProcessUpdateHandler(AsyncUpdateHandler):
                 stderr_eof.send(b'')
                 stderr_eof.close()
 
-            stdout = context.socket(zmq.PAIR)
+            stdout = ctx.socket(zmq.PAIR)
             stdout.bind('inproc://stdout')
 
-            stderr = context.socket(zmq.PAIR)
+            stderr = ctx.socket(zmq.PAIR)
             stderr.bind('inproc://stderr')
 
-            start = context.socket(zmq.PAIR)
+            start = ctx.socket(zmq.PAIR)
             start.bind('inproc://start')
 
             threading.Thread(target=stdout_handler).start()
@@ -156,7 +156,7 @@ class ProcessUpdateHandler(AsyncUpdateHandler):
             self.update_handler = update_handler
         else:
             # one stream
-            context = zmq.Context()
+            ctx = zmq.Context()
 
             if self.on_stdout is not None:
                 fileno, handler = process.STDOUT, self.on_stdout
@@ -164,10 +164,10 @@ class ProcessUpdateHandler(AsyncUpdateHandler):
                 fileno, handler = process.STDERR, self.on_stderr
 
             def stream_handler():
-                stream = context.socket(zmq.PAIR)
+                stream = ctx.socket(zmq.PAIR)
                 stream.connect('inproc://stream')
 
-                start = context.socket(zmq.PAIR)
+                start = ctx.socket(zmq.PAIR)
                 start.connect('inproc://start')
                 start.send(b'')
                 start.close()
@@ -186,10 +186,10 @@ class ProcessUpdateHandler(AsyncUpdateHandler):
                 if self.on_exit is not None:
                     self.on_exit(client, update.pid, update.exit_code)
 
-            stream = context.socket(zmq.PAIR)
+            stream = ctx.socket(zmq.PAIR)
             stream.bind('inproc://stream')
 
-            start = context.socket(zmq.PAIR)
+            start = ctx.socket(zmq.PAIR)
             start.bind('inproc://start')
 
             threading.Thread(target=stream_handler).start()
