@@ -14,42 +14,39 @@ _CLOSE = b'\x02'
 class ClientBackend:
     def __init__(self, endpoint, ctx=None):
         self._ctx = zmq.Context()
+        self.async_registries = {}
+
         socket = self._ctx.socket(zmq.ROUTER)
         socket.bind('inproc://socket')
-        self.socket = sockets.DealerRouterWrapper(socket)
+        socket = sockets.DealerRouterWrapper(socket)
 
         if ctx is None:
             ctx = zmq.Context.instance()
         backend = ctx.socket(zmq.DEALER)
         backend.connect(endpoint)
-        self.backend = sockets.DealerRouterWrapper(backend)
+        backend = sockets.DealerRouterWrapper(backend)
 
-        self.async_registries = {}
-
-        threading.Thread(target=self.run).start()
-
-    def run(self):
         def socket_handler():
             # receive from the frontend
-            header, [cmd, *msgs_raw] = self.socket.recv_multipart_raw()
+            header, [cmd, *msgs_raw] = socket.recv_multipart_raw()
 
             if cmd == _CONNECT:
                 # send back the socket ID
                 identity = header[0]
                 self.async_registries[identity] = AsyncRegistry()
-                self.socket.send_raw(header, identity)
+                socket.send_raw(header, identity)
             elif cmd == _CLOSE:
                 # close the backend
-                poller.unregister(self.socket.socket)
-                poller.unregister(self.backend.socket)
+                poller.unregister(socket.socket)
+                poller.unregister(backend.socket)
             else:  # cmd == _COMMAND
                 # forward to the backend
                 assert len(msgs_raw) > 0
-                self.backend.send_multipart(header, [messages.parse(msg) for msg in msgs_raw])
+                backend.send_multipart(header, [messages.parse(msg) for msg in msgs_raw])
 
         def backend_handler():
             # receive from the backend
-            header, msgs = self.backend.recv_multipart()
+            header, msgs = backend.recv_multipart()
             assert len(msgs) > 0
 
             identity = header[0]
@@ -64,18 +61,21 @@ class ClientBackend:
             else:
                 # handle synchronous messages
                 async_registry.handle_register(self, msgs)
-                self.socket.send_multipart(header, msgs)
+                socket.send_multipart(header, msgs)
 
         poller = zmq_utils.Poller()
-        poller.register(self.socket.socket, zmq.POLLIN, socket_handler)
-        poller.register(self.backend.socket, zmq.POLLIN, backend_handler)
+        poller.register(socket.socket, zmq.POLLIN, socket_handler)
+        poller.register(backend.socket, zmq.POLLIN, backend_handler)
 
-        while len(poller.sockets) > 0:
-            for _, _, handler in poller.poll():
-                handler()
+        def poll():
+            while len(poller.sockets) > 0:
+                for _, _, handler in poller.poll():
+                    handler()
 
-        self.socket.close()
-        self.backend.close()
+            socket.close()
+            backend.close()
+
+        threading.Thread(target=poll).start()
 
     def connect(self):
         socket = self._ctx.socket(zmq.REQ)
