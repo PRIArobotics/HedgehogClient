@@ -84,7 +84,61 @@ class TestClient(unittest.TestCase):
              HedgehogClient('inproc://controller', context=context) as client:
             self.assertEqual(client.set_servo(0, False, 0), None)
 
-    def test_execute_process(self):
+    def test_execute_process_no_streams(self):
+        context = zmq.Context()
+        with HedgehogServer('inproc://controller', simulator.handler(), context=context), \
+             HedgehogClient('inproc://controller', context=context) as client:
+            on_exit_sock = context.socket(zmq.PAIR)
+            on_exit_sock.bind('inproc://on_exit')
+
+            process_info = {
+            }
+
+            def on_exit(client, pid, exit_code):
+                process_info['exit'] = (pid, exit_code)
+
+                on_exit_sock = context.socket(zmq.PAIR)
+                on_exit_sock.connect('inproc://on_exit')
+                on_exit_sock.send(b'')
+
+            pid = client.execute_process('echo', 'asdf', on_exit=on_exit)
+            client.send_process_data(pid)
+
+            on_exit_sock.recv()
+            self.assertEqual(process_info['exit'], (pid, 0))
+
+    def test_execute_process_one_stream(self):
+        context = zmq.Context()
+        with HedgehogServer('inproc://controller', simulator.handler(), context=context), \
+             HedgehogClient('inproc://controller', context=context) as client:
+            on_exit_sock = context.socket(zmq.PAIR)
+            on_exit_sock.bind('inproc://on_exit')
+
+            process_info = {
+                STDOUT: [],
+            }
+
+            def on_stream(client, pid, fileno, chunk):
+                time.sleep(0.1)
+                process_info[fileno].append((pid, chunk))
+
+            def on_exit(client, pid, exit_code):
+                process_info['exit'] = (pid, exit_code)
+
+                on_exit_sock = context.socket(zmq.PAIR)
+                on_exit_sock.connect('inproc://on_exit')
+                on_exit_sock.send(b'')
+
+            pid = client.execute_process('echo', 'asdf', on_stdout=on_stream, on_exit=on_exit)
+            client.send_process_data(pid)
+
+            on_exit_sock.recv()
+            self.assertEqual(process_info['exit'], (pid, 0))
+            for pid_, _ in process_info[STDOUT]:
+                self.assertEqual(pid_, pid)
+            self.assertEqual(b''.join((chunk for _, chunk in process_info[STDOUT])), b'asdf\n')
+
+    def test_execute_process_two_streams(self):
         context = zmq.Context()
         with HedgehogServer('inproc://controller', simulator.handler(), context=context), \
              HedgehogClient('inproc://controller', context=context) as client:
