@@ -17,7 +17,7 @@ class AsyncUpdateHandler:
     def key(self):
         raise NotImplementedError
 
-    def register(self):
+    def register(self, backend):
         pass
 
     def handle_update(self, backend, update):
@@ -98,7 +98,7 @@ class AsyncRegistry:
         assert self._new_handlers is None, "register_cbs is already set"
         self._new_handlers = value
 
-    def handle_register(self, reps):
+    def handle_register(self, backend, reps):
         new_handlers = self.new_handlers
         assert len(new_handlers) == len(reps)
         for handler, rep in zip(new_handlers, reps):
@@ -110,7 +110,7 @@ class AsyncRegistry:
             handler.rep = rep
             kind, key = type(handler), handler.key
             self.handlers[kind][key] = handler
-            handler.register()
+            handler.register(backend)
 
     def handle_async(self, backend, msg):
         kind = handler_map[type(msg)]

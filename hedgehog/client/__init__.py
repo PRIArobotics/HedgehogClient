@@ -77,7 +77,7 @@ class ClientBackend:
                             async_registry.handle_async(self, msg)
                     else:
                         # handle synchronous messages
-                        async_registry.handle_register(msgs)
+                        async_registry.handle_register(self, msgs)
                         socket.send_multipart(header, msgs)
 
 
