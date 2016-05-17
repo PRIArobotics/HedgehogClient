@@ -13,6 +13,9 @@ _CLOSE = b'\x02'
 class ClientBackend:
     def __init__(self, endpoint, ctx=None):
         self._ctx = zmq.Context()
+        socket = self._ctx.socket(zmq.ROUTER)
+        socket.bind('inproc://socket')
+        self.socket = sockets.DealerRouterWrapper(socket)
 
         if ctx is None:
             ctx = zmq.Context.instance()
@@ -22,41 +25,26 @@ class ClientBackend:
 
         self.async_registries = {}
 
-        signal = self._ctx.socket(zmq.PAIR)
-        signal.bind('inproc://signal')
-
         threading.Thread(target=self.run).start()
 
-        signal.recv()
-        signal.close()
-
     def run(self):
-        socket = self._ctx.socket(zmq.ROUTER)
-        socket.bind('inproc://socket')
-        socket = sockets.DealerRouterWrapper(socket)
-
-        signal = self._ctx.socket(zmq.PAIR)
-        signal.connect('inproc://signal')
-        signal.send(b'')
-        signal.close()
-
         poller = zmq.Poller()
-        poller.register(socket.socket, zmq.POLLIN)
+        poller.register(self.socket.socket, zmq.POLLIN)
         poller.register(self.backend.socket, zmq.POLLIN)
         while len(poller.sockets) > 0:
             for sock, _ in poller.poll():
-                if sock is socket.socket:
+                if sock is self.socket.socket:
                     # receive from the frontend
-                    header, [cmd, *msgs_raw] = socket.recv_multipart_raw()
+                    header, [cmd, *msgs_raw] = self.socket.recv_multipart_raw()
 
                     if cmd == _CONNECT:
                         # send back the socket ID
                         identity = header[0]
                         self.async_registries[identity] = AsyncRegistry()
-                        socket.send_raw(header, identity)
+                        self.socket.send_raw(header, identity)
                     elif cmd == _CLOSE:
                         # close the backend
-                        poller.unregister(socket.socket)
+                        poller.unregister(self.socket.socket)
                         poller.unregister(self.backend.socket)
                     else:  # cmd == _COMMAND
                         # forward to the backend
@@ -79,10 +67,9 @@ class ClientBackend:
                     else:
                         # handle synchronous messages
                         async_registry.handle_register(self, msgs)
-                        socket.send_multipart(header, msgs)
+                        self.socket.send_multipart(header, msgs)
 
-
-        socket.close()
+        self.socket.close()
         self.backend.close()
 
     def connect(self):
