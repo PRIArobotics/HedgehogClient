@@ -1,5 +1,6 @@
 import threading
 import zmq
+from hedgehog.utils import zmq as zmq_utils
 from hedgehog.protocol import errors, messages, sockets
 from hedgehog.protocol.messages import ack, io, analog, digital, motor, servo, process
 from .async import AsyncRegistry, MotorUpdateHandler, ProcessUpdateHandler
@@ -28,46 +29,50 @@ class ClientBackend:
         threading.Thread(target=self.run).start()
 
     def run(self):
-        poller = zmq.Poller()
-        poller.register(self.socket.socket, zmq.POLLIN)
-        poller.register(self.backend.socket, zmq.POLLIN)
+        def socket_handler():
+            # receive from the frontend
+            header, [cmd, *msgs_raw] = self.socket.recv_multipart_raw()
+
+            if cmd == _CONNECT:
+                # send back the socket ID
+                identity = header[0]
+                self.async_registries[identity] = AsyncRegistry()
+                self.socket.send_raw(header, identity)
+            elif cmd == _CLOSE:
+                # close the backend
+                poller.unregister(self.socket.socket)
+                poller.unregister(self.backend.socket)
+            else:  # cmd == _COMMAND
+                # forward to the backend
+                assert len(msgs_raw) > 0
+                self.backend.send_multipart(header, [messages.parse(msg) for msg in msgs_raw])
+
+        def backend_handler():
+            # receive from the backend
+            header, msgs = self.backend.recv_multipart()
+            assert len(msgs) > 0
+
+            identity = header[0]
+            async_registry = self.async_registries[identity]
+
+            # either, all messages are replies corresponding to the previous requests,
+            # or all messages are asynchronous updates
+            if msgs[0].async:
+                # handle asynchronous messages
+                for msg in msgs:
+                    async_registry.handle_async(self, msg)
+            else:
+                # handle synchronous messages
+                async_registry.handle_register(self, msgs)
+                self.socket.send_multipart(header, msgs)
+
+        poller = zmq_utils.Poller()
+        poller.register(self.socket.socket, zmq.POLLIN, socket_handler)
+        poller.register(self.backend.socket, zmq.POLLIN, backend_handler)
+
         while len(poller.sockets) > 0:
-            for sock, _ in poller.poll():
-                if sock is self.socket.socket:
-                    # receive from the frontend
-                    header, [cmd, *msgs_raw] = self.socket.recv_multipart_raw()
-
-                    if cmd == _CONNECT:
-                        # send back the socket ID
-                        identity = header[0]
-                        self.async_registries[identity] = AsyncRegistry()
-                        self.socket.send_raw(header, identity)
-                    elif cmd == _CLOSE:
-                        # close the backend
-                        poller.unregister(self.socket.socket)
-                        poller.unregister(self.backend.socket)
-                    else:  # cmd == _COMMAND
-                        # forward to the backend
-                        assert len(msgs_raw) > 0
-                        self.backend.send_multipart(header, [messages.parse(msg) for msg in msgs_raw])
-                else:  # sock is backend.socket
-                    # receive from the backend
-                    header, msgs = self.backend.recv_multipart()
-                    assert len(msgs) > 0
-
-                    identity = header[0]
-                    async_registry = self.async_registries[identity]
-
-                    # either, all messages are replies corresponding to the previous requests,
-                    # or all messages are asynchronous updates
-                    if msgs[0].async:
-                        # handle asynchronous messages
-                        for msg in msgs:
-                            async_registry.handle_async(self, msg)
-                    else:
-                        # handle synchronous messages
-                        async_registry.handle_register(self, msgs)
-                        self.socket.send_multipart(header, msgs)
+            for _, _, handler in poller.poll():
+                handler()
 
         self.socket.close()
         self.backend.close()
