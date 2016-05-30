@@ -114,13 +114,13 @@ class ProcessUpdateHandler(AsyncUpdateHandler):
             def update_handler(backend, update):
                 if type(update) is process.StreamUpdate:
                     if update.fileno == process.STDOUT:
-                        stdout_a.send(update.serialize())
+                        stdout_a.send(messages.serialize(update))
                     elif update.fileno == process.STDERR:
-                        stderr_a.send(update.serialize())
+                        stderr_a.send(messages.serialize(update))
                         if update.chunk == b'':
                             stderr_a.close()
                 elif type(update) is process.ExitUpdate:
-                    stdout_a.send(update.serialize())
+                    stdout_a.send(messages.serialize(update))
                     stdout_a.close()
 
             self.update_handler = update_handler
@@ -151,9 +151,9 @@ class ProcessUpdateHandler(AsyncUpdateHandler):
 
             def update_handler(backend, update):
                 if type(update) is process.StreamUpdate and update.fileno == fileno:
-                    stream_a.send(update.serialize())
+                    stream_a.send(messages.serialize(update))
                 elif type(update) is process.ExitUpdate:
-                    stream_a.send(update.serialize())
+                    stream_a.send(messages.serialize(update))
                     stream_a.close()
 
             self.update_handler = update_handler

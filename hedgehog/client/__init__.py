@@ -117,7 +117,7 @@ class _HedgehogClient:
 
     def _send_multipart(self, *cmds):
         self.async_registry.new_handlers = [cmd[1] for cmd in cmds]
-        self.socket.send_multipart_raw([_COMMAND] + [cmd[0].serialize() for cmd in cmds])
+        self.socket.send_multipart_raw([_COMMAND] + [messages.serialize(cmd[0]) for cmd in cmds])
         return self.socket.recv_multipart()
 
     def get_analog(self, port):
