@@ -91,7 +91,7 @@ class ClientBackend:
         threading.Thread(target=target, args=args, kwargs=kwargs).start()
 
 
-def HedgehogClient(endpoint, ctx=None):
+def HedgehogClient(endpoint='tcp://127.0.0.1:10789', ctx=None):
     backend = ClientBackend(endpoint, ctx=ctx)
     return backend.connect()
 
