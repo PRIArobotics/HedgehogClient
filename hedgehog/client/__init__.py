@@ -1,6 +1,6 @@
 import threading
 import zmq
-from hedgehog.utils import zmq as zmq_utils
+from hedgehog.utils.zmq.poller import Poller
 from hedgehog.protocol import errors, messages, sockets
 from hedgehog.protocol.messages import ack, io, analog, digital, motor, servo, process
 from .async import AsyncRegistry, MotorUpdateHandler, ProcessUpdateHandler
@@ -63,7 +63,7 @@ class ClientBackend:
                 async_registry.handle_register(self, msgs)
                 socket.send_multipart(header, msgs)
 
-        poller = zmq_utils.Poller()
+        poller = Poller()
         poller.register(socket.socket, zmq.POLLIN, socket_handler)
         poller.register(backend.socket, zmq.POLLIN, backend_handler)
 

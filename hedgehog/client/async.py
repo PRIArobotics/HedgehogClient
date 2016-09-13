@@ -1,6 +1,6 @@
 import threading
 import zmq
-from hedgehog.utils import zmq as zmq_utils
+from hedgehog.utils.zmq.pipe import pipe
 from hedgehog.protocol import messages
 from hedgehog.protocol.messages import ack, motor, process
 
@@ -77,9 +77,9 @@ class ProcessUpdateHandler(AsyncUpdateHandler):
         elif self.on_stdout is not None and self.on_stderr is not None:
             # both streams; the complicated case
             ctx = zmq.Context()
-            stdout_a, stdout_b = zmq_utils.pipe(ctx)
-            stderr_a, stderr_b = zmq_utils.pipe(ctx)
-            stderr_eof_a, stderr_eof_b = zmq_utils.pipe(ctx)
+            stdout_a, stdout_b = pipe(ctx)
+            stderr_a, stderr_b = pipe(ctx)
+            stderr_eof_a, stderr_eof_b = pipe(ctx)
 
             def stdout_handler(client):
                 while True:
@@ -127,7 +127,7 @@ class ProcessUpdateHandler(AsyncUpdateHandler):
         else:
             # one stream
             ctx = zmq.Context()
-            stream_a, stream_b = zmq_utils.pipe(ctx)
+            stream_a, stream_b = pipe(ctx)
 
             if self.on_stdout is not None:
                 fileno, handler = process.STDOUT, self.on_stdout
