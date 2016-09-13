@@ -20,8 +20,8 @@ class TestClient(unittest.TestCase):
     def test_multiple_clients(self):
         ctx = zmq.Context()
         with HedgehogServer(ctx, 'inproc://controller', handler()), \
-             HedgehogClient('inproc://controller', ctx=ctx) as client1, \
-             HedgehogClient('inproc://controller', ctx=ctx) as client2:
+             HedgehogClient(ctx, 'inproc://controller') as client1, \
+             HedgehogClient(ctx, 'inproc://controller') as client2:
             self.assertEqual(client1.get_analog(0), 0)
             self.assertEqual(client2.get_analog(0), 0)
 
@@ -34,62 +34,62 @@ class TestClient(unittest.TestCase):
         ctx = zmq.Context()
         handlers = handlers.to_dict(HardwareHandler(HardwareAdapter()), ProcessHandler())
         with HedgehogServer(ctx, 'inproc://controller', handlers), \
-             HedgehogClient('inproc://controller', ctx=ctx) as client:
+             HedgehogClient(ctx, 'inproc://controller') as client:
             with self.assertRaises(errors.UnsupportedCommandError):
                 client.get_analog(0)
 
     def test_set_input_state(self):
         ctx = zmq.Context()
         with HedgehogServer(ctx, 'inproc://controller', handler()), \
-             HedgehogClient('inproc://controller', ctx=ctx) as client:
+             HedgehogClient(ctx, 'inproc://controller') as client:
             self.assertEqual(client.set_input_state(0, False), None)
 
     def test_get_analog(self):
         ctx = zmq.Context()
         with HedgehogServer(ctx, 'inproc://controller', handler()), \
-             HedgehogClient('inproc://controller', ctx=ctx) as client:
+             HedgehogClient(ctx, 'inproc://controller') as client:
             self.assertEqual(client.get_analog(0), 0)
 
     def test_get_digital(self):
         ctx = zmq.Context()
         with HedgehogServer(ctx, 'inproc://controller', handler()), \
-             HedgehogClient('inproc://controller', ctx=ctx) as client:
+             HedgehogClient(ctx, 'inproc://controller') as client:
             self.assertEqual(client.get_digital(0), False)
 
     def test_set_digital_output(self):
         ctx = zmq.Context()
         with HedgehogServer(ctx, 'inproc://controller', handler()), \
-             HedgehogClient('inproc://controller', ctx=ctx) as client:
+             HedgehogClient(ctx, 'inproc://controller') as client:
             self.assertEqual(client.set_digital_output(0, False), None)
 
     def test_set_motor(self):
         ctx = zmq.Context()
         with HedgehogServer(ctx, 'inproc://controller', handler()), \
-             HedgehogClient('inproc://controller', ctx=ctx) as client:
+             HedgehogClient(ctx, 'inproc://controller') as client:
             self.assertEqual(client.set_motor(0, POWER, 100), None)
 
     def test_get_motor(self):
         ctx = zmq.Context()
         with HedgehogServer(ctx, 'inproc://controller', handler()), \
-             HedgehogClient('inproc://controller', ctx=ctx) as client:
+             HedgehogClient(ctx, 'inproc://controller') as client:
             self.assertEqual(client.get_motor(0), (0, 0))
 
     def test_set_motor_position(self):
         ctx = zmq.Context()
         with HedgehogServer(ctx, 'inproc://controller', handler()), \
-             HedgehogClient('inproc://controller', ctx=ctx) as client:
+             HedgehogClient(ctx, 'inproc://controller') as client:
             self.assertEqual(client.set_motor_position(0, 0), None)
 
     def test_set_servo(self):
         ctx = zmq.Context()
         with HedgehogServer(ctx, 'inproc://controller', handler()), \
-             HedgehogClient('inproc://controller', ctx=ctx) as client:
+             HedgehogClient(ctx, 'inproc://controller') as client:
             self.assertEqual(client.set_servo(0, False, 0), None)
 
     def test_execute_process_no_streams(self):
         ctx = zmq.Context()
         with HedgehogServer(ctx, 'inproc://controller', handler()), \
-             HedgehogClient('inproc://controller', ctx=ctx) as client:
+             HedgehogClient(ctx, 'inproc://controller') as client:
             exit_a, exit_b = pipe(ctx)
 
             process_info = {
@@ -109,7 +109,7 @@ class TestClient(unittest.TestCase):
     def test_execute_process_one_stream(self):
         ctx = zmq.Context()
         with HedgehogServer(ctx, 'inproc://controller', handler()), \
-             HedgehogClient('inproc://controller', ctx=ctx) as client:
+             HedgehogClient(ctx, 'inproc://controller') as client:
             exit_a, exit_b = pipe(ctx)
 
             process_info = {
@@ -137,7 +137,7 @@ class TestClient(unittest.TestCase):
     def test_execute_process_two_streams(self):
         ctx = zmq.Context()
         with HedgehogServer(ctx, 'inproc://controller', handler()), \
-             HedgehogClient('inproc://controller', ctx=ctx) as client:
+             HedgehogClient(ctx, 'inproc://controller') as client:
             exit_a, exit_b = pipe(ctx)
 
             process_info = {

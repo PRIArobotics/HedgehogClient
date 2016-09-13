@@ -93,7 +93,7 @@ class ClientBackend:
 
 
 class HedgehogClient:
-    def __init__(self, endpoint='tcp://127.0.0.1:10789', ctx=None):
+    def __init__(self, ctx, endpoint='tcp://127.0.0.1:10789'):
         backend = ClientBackend(ctx, endpoint)
         self.__init(backend)
 
