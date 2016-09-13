@@ -120,21 +120,18 @@ class _HedgehogClient:
         self.socket.send_multipart_raw([_COMMAND] + [messages.serialize(cmd[0]) for cmd in cmds])
         return self.socket.recv_multipart()
 
+    def set_input_state(self, port, pullup):
+        self._send(io.StateAction(port, io.INPUT_PULLUP if pullup else io.INPUT_FLOATING))
+
     def get_analog(self, port):
         response = self._send(analog.Request(port))
         assert response.port == port
         return response.value
 
-    def set_analog_state(self, port, pullup):
-        self._send(io.StateAction(port, io.ANALOG_PULLUP if pullup else io.ANALOG_FLOATING))
-
     def get_digital(self, port):
         response = self._send(digital.Request(port))
         assert response.port == port
         return response.value
-
-    def set_digital_state(self, port, pullup):
-        self._send(io.StateAction(port, io.DIGITAL_PULLUP if pullup else io.DIGITAL_FLOATING))
 
     def set_digital_output(self, port, level):
         self._send(io.StateAction(port, io.OUTPUT_ON if level else io.OUTPUT_OFF))

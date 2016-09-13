@@ -38,29 +38,23 @@ class TestClient(unittest.TestCase):
             with self.assertRaises(errors.UnsupportedCommandError):
                 client.get_analog(0)
 
+    def test_set_input_state(self):
+        ctx = zmq.Context()
+        with HedgehogServer(ctx, 'inproc://controller', handler()), \
+             HedgehogClient('inproc://controller', ctx=ctx) as client:
+            self.assertEqual(client.set_input_state(0, False), None)
+
     def test_get_analog(self):
         ctx = zmq.Context()
         with HedgehogServer(ctx, 'inproc://controller', handler()), \
              HedgehogClient('inproc://controller', ctx=ctx) as client:
-                self.assertEqual(client.get_analog(0), 0)
-
-    def test_set_analog_state(self):
-        ctx = zmq.Context()
-        with HedgehogServer(ctx, 'inproc://controller', handler()), \
-             HedgehogClient('inproc://controller', ctx=ctx) as client:
-            self.assertEqual(client.set_analog_state(0, False), None)
+            self.assertEqual(client.get_analog(0), 0)
 
     def test_get_digital(self):
         ctx = zmq.Context()
         with HedgehogServer(ctx, 'inproc://controller', handler()), \
              HedgehogClient('inproc://controller', ctx=ctx) as client:
             self.assertEqual(client.get_digital(0), False)
-
-    def test_set_digital_state(self):
-        ctx = zmq.Context()
-        with HedgehogServer(ctx, 'inproc://controller', handler()), \
-             HedgehogClient('inproc://controller', ctx=ctx) as client:
-            self.assertEqual(client.set_digital_state(0, False), None)
 
     def test_set_digital_output(self):
         ctx = zmq.Context()
