@@ -12,7 +12,7 @@ _CLOSE = b'\x02'
 
 
 class ClientBackend:
-    def __init__(self, endpoint, ctx=None):
+    def __init__(self, ctx, endpoint):
         self._ctx = zmq.Context()
         self.async_registries = {}
 
@@ -20,8 +20,6 @@ class ClientBackend:
         socket.bind('inproc://socket')
         socket = sockets.DealerRouterWrapper(socket)
 
-        if ctx is None:
-            ctx = zmq.Context.instance()
         backend = ctx.socket(zmq.DEALER)
         backend.connect(endpoint)
         backend = sockets.DealerRouterWrapper(backend)
@@ -81,7 +79,7 @@ class ClientBackend:
         socket = self._ctx.socket(zmq.REQ)
         socket.connect('inproc://socket')
 
-        return _HedgehogClient(self, socket)
+        return HedgehogClient._backend_new(self, socket)
 
     def spawn(self, callback, *args, **kwargs):
         def target(*args, **kwargs):
@@ -91,13 +89,20 @@ class ClientBackend:
         threading.Thread(target=target, args=args, kwargs=kwargs).start()
 
 
-def HedgehogClient(endpoint='tcp://127.0.0.1:10789', ctx=None):
-    backend = ClientBackend(endpoint, ctx=ctx)
-    return backend.connect()
+class HedgehogClient:
+    def __init__(self, endpoint='tcp://127.0.0.1:10789', ctx=None):
+        backend = ClientBackend(ctx, endpoint)
+        socket = backend._ctx.socket(zmq.REQ)
+        socket.connect('inproc://socket')
+        self.__init(backend, socket)
 
+    @classmethod
+    def _backend_new(cls, backend, socket):
+        self = cls.__new__(cls)
+        self.__init(backend, socket)
+        return self
 
-class _HedgehogClient:
-    def __init__(self, backend, socket):
+    def __init(self, backend, socket):
         self.socket = sockets.ReqWrapper(socket)
 
         self.socket.send_raw(_CONNECT)
