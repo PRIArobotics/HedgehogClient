@@ -78,12 +78,15 @@ class ClientBackend:
     def connect(self):
         socket = self._ctx.socket(zmq.REQ)
         socket.connect('inproc://socket')
+        socket = sockets.ReqWrapper(socket)
 
-        return HedgehogClient._backend_new(self, socket)
+        socket.send_raw(_CONNECT)
+        identity = socket.recv_raw()
+        return socket, self.async_registries[identity]
 
     def spawn(self, callback, *args, **kwargs):
         def target(*args, **kwargs):
-            client = self.connect()
+            client = HedgehogClient._backend_new(self)
             callback(client, *args, **kwargs)
 
         threading.Thread(target=target, args=args, kwargs=kwargs).start()
@@ -92,24 +95,17 @@ class ClientBackend:
 class HedgehogClient:
     def __init__(self, endpoint='tcp://127.0.0.1:10789', ctx=None):
         backend = ClientBackend(ctx, endpoint)
-        socket = backend._ctx.socket(zmq.REQ)
-        socket.connect('inproc://socket')
-        self.__init(backend, socket)
+        self.__init(backend)
 
     @classmethod
-    def _backend_new(cls, backend, socket):
+    def _backend_new(cls, backend):
         self = cls.__new__(cls)
-        self.__init(backend, socket)
+        self.__init(backend)
         return self
 
-    def __init(self, backend, socket):
-        self.socket = sockets.ReqWrapper(socket)
-
-        self.socket.send_raw(_CONNECT)
-        identity = self.socket.recv_raw()
-
+    def __init(self, backend):
         # TODO writes in the backend may interfere with this read
-        self.async_registry = backend.async_registries[identity]
+        self.socket, self.async_registry = backend.connect()
 
     def _send(self, msg, handler=None):
         reply = self._send_multipart((msg, handler))[0]
