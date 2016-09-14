@@ -1,6 +1,10 @@
+import logging
 import threading
+import time
 import zmq
+from hedgehog.utils.zmq.actor import CommandRegistry
 from hedgehog.utils.zmq.poller import Poller
+from hedgehog.utils.discovery.service_node import ServiceNode
 from hedgehog.protocol import errors, messages, sockets
 from hedgehog.protocol.messages import ack, io, analog, digital, motor, servo, process
 from .async import AsyncRegistry, MotorUpdateHandler, ProcessUpdateHandler
@@ -9,6 +13,8 @@ from .async import AsyncRegistry, MotorUpdateHandler, ProcessUpdateHandler
 _COMMAND = b'\x00'
 _CONNECT = b'\x01'
 _CLOSE = b'\x02'
+
+logger = logging.getLogger(__name__)
 
 
 class ClientBackend:
@@ -105,6 +111,7 @@ class HedgehogClient:
 
     def __init(self, backend):
         # TODO writes in the backend may interfere with this read
+        self.backend = backend
         self.socket, self.async_registry = backend.connect()
 
     def _send(self, msg, handler=None):
@@ -194,3 +201,95 @@ class HedgehogClient:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
+
+
+def find_server(ctx, service='hedgehog_server', accept=None):
+    if accept is None:
+        accept = lambda peer: service in peer.services
+
+    node = ServiceNode(ctx, "Hedgehog Client")
+    with node:
+        logger.info("Looking for servers...")
+
+        poller = Poller()
+        registry = CommandRegistry()
+        poller.register(node.evt_pipe, zmq.POLLIN,
+                        lambda: registry.handle(node.evt_pipe.recv_multipart()))
+
+        def terminate():
+            for socket in list(poller.sockets):
+                poller.unregister(socket)
+
+        @registry.command(b'BEACON TERM')
+        def handle_beacon_term():
+            logger.info("Beacon terminated (network gone?). Retry in 3 seconds...")
+            time.sleep(3)
+            node.restart_beacon()
+
+        @registry.command(b'ENTER')
+        def handle_enter(*args):
+            pass
+
+        @registry.command(b'EXIT')
+        def handle_enter(*args):
+            pass
+
+        @registry.command(b'JOIN')
+        def handle_enter(*args):
+            pass
+
+        @registry.command(b'LEAVE')
+        def handle_enter(*args):
+            pass
+
+        @registry.command(b'$TERM')
+        def handle_term():
+            logger.warn("Node terminated")
+            terminate()
+
+        @registry.command(b'UPDATE')
+        def handle_term():
+            peer = node.evt_pipe.pop()
+            if accept(peer):
+                terminate()
+            return peer
+
+        node.join(service)
+        node.request_service(service)
+        server = None
+
+        while len(poller.sockets) > 0:
+            items = poller.poll(1000)
+            if len(items) > 0:
+                for _, _, handler in items:
+                    server = handler()
+            else:
+                node.request_service(service)
+        return server
+
+
+def get_client(endpoint='tcp://127.0.0.1:10789', service='hedgehog_server'):
+    ctx = zmq.Context()
+
+    if endpoint is None:
+        server = None
+        while server is None:
+            server = find_server(ctx, service)
+        endpoint = list(server.services[service])[0]
+        logger.debug("Chose this endpoint via discovery: {}".format(endpoint))
+
+    return HedgehogClient(ctx, endpoint)
+
+
+def entry_point(endpoint='tcp://127.0.0.1:10789', service='hedgehog_server'):
+    def entry(func):
+        client = get_client(endpoint, service)
+        with client:
+            try:
+                func(client)
+            finally:
+                for i in range(0, 4):
+                    client.move(i, 0)
+                    client.set_servo(i, False, 1000)
+
+    return lambda func: (lambda: entry(func))
