@@ -268,8 +268,8 @@ def find_server(ctx, service='hedgehog_server', accept=None):
         return server
 
 
-def get_client(endpoint='tcp://127.0.0.1:10789', service='hedgehog_server'):
-    ctx = zmq.Context()
+def get_client(endpoint='tcp://127.0.0.1:10789', service='hedgehog_server', ctx=None):
+    ctx = ctx or zmq.Context()
 
     if endpoint is None:
         server = None
@@ -281,9 +281,9 @@ def get_client(endpoint='tcp://127.0.0.1:10789', service='hedgehog_server'):
     return HedgehogClient(ctx, endpoint)
 
 
-def entry_point(endpoint='tcp://127.0.0.1:10789', service='hedgehog_server'):
+def entry_point(endpoint='tcp://127.0.0.1:10789', service='hedgehog_server', ctx=None):
     def entry(func):
-        client = get_client(endpoint, service)
+        client = get_client(endpoint, service, ctx)
         with client:
             try:
                 func(client)

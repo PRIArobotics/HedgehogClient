@@ -6,7 +6,8 @@ from hedgehog.server import handlers, HedgehogServer
 from hedgehog.server.handlers.hardware import HardwareHandler
 from hedgehog.server.handlers.process import ProcessHandler
 from hedgehog.server.hardware.simulated import SimulatedHardwareAdapter
-from hedgehog.client import HedgehogClient
+from hedgehog.utils.discovery.service_node import ServiceNode
+from hedgehog.client import HedgehogClient, find_server, get_client, entry_point
 from hedgehog.protocol import errors
 from hedgehog.protocol.messages.motor import POWER, BRAKE, VELOCITY
 from hedgehog.protocol.messages.process import STDOUT, STDERR
@@ -165,6 +166,35 @@ class TestClient(unittest.TestCase):
                 self.assertEqual(pid_, pid)
             self.assertEqual(b''.join((chunk for _, chunk in process_info[STDOUT])), b'asdf\n')
             self.assertEqual(b''.join((chunk for _, chunk in process_info[STDERR])), b'')
+
+    def test_find_server(self):
+        ctx = zmq.Context()
+        node = ServiceNode(ctx, "Hedgehog Server")
+        with node:
+            SERVICE = 'hedgehog_server'
+
+            node.join(SERVICE)
+            node.add_service(SERVICE, 10789)
+
+            server = find_server(ctx, SERVICE)
+            port = list(server.services[SERVICE])[0].rsplit(':', 1)[1]
+
+            self.assertEqual(port, "10789")
+
+    def test_get_client(self):
+        ctx = zmq.Context()
+        with HedgehogServer(ctx, 'inproc://controller', handler()), \
+             get_client('inproc://controller', ctx=ctx) as client:
+            self.assertEqual(client.get_analog(0), 0)
+
+    def test_entry_point(self):
+        ctx = zmq.Context()
+        with HedgehogServer(ctx, 'inproc://controller', handler()):
+            @entry_point('inproc://controller', ctx=ctx)
+            def main(client):
+                self.assertEqual(client.get_analog(0), 0)
+
+            main()
 
 
 if __name__ == '__main__':
