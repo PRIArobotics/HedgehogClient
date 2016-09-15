@@ -6,17 +6,13 @@ from hedgehog.utils.zmq.poller import Poller
 from hedgehog.utils.discovery.service_node import ServiceNode
 from hedgehog.protocol import errors, messages
 from hedgehog.protocol.messages import ack, io, analog, digital, motor, servo, process
-from .client_handle import MotorUpdateHandler, ProcessUpdateHandler
 from .client_backend import ClientBackend
-
-_COMMAND = b'\x00'
-_CONNECT = b'\x01'
-_CLOSE = b'\x02'
+from .client_handle import MotorUpdateHandler, ProcessUpdateHandler
 
 logger = logging.getLogger(__name__)
 
 
-class HedgehogClient:
+class HedgehogClient(object):
     def __init__(self, ctx, endpoint='tcp://127.0.0.1:10789'):
         backend = ClientBackend(ctx, endpoint)
         self.__init(backend)
@@ -28,7 +24,6 @@ class HedgehogClient:
         return self
 
     def __init(self, backend):
-        # TODO writes in the backend may interfere with this read
         self.backend = backend
         self.socket, self.handle = backend.connect()
 
@@ -42,8 +37,11 @@ class HedgehogClient:
             return reply
 
     def _send_multipart(self, *cmds):
-        self.handle.new_handlers = [cmd[1] for cmd in cmds]
-        self.socket.send_multipart_raw([_COMMAND] + [messages.serialize(cmd[0]) for cmd in cmds])
+        msgs = [messages.serialize(msg) for msg, _ in cmds]
+        handlers = [handler for _, handler in cmds]
+
+        self.handle.push(handlers)
+        self.socket.send_multipart_raw([b'COMMAND'] + msgs)
         return self.socket.recv_multipart()
 
     def set_input_state(self, port, pullup):
@@ -111,13 +109,11 @@ class HedgehogClient:
         self._send(process.StreamAction(pid, process.STDIN, chunk))
 
     def close(self):
-        self.socket.send_raw(_CLOSE)
-        self.socket.close()
+        if not self.socket.socket.closed:
+            self.socket.send_raw(b'DISCONNECT')
+            self.socket.close()
 
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __del__(self):
         self.close()
 
 
@@ -202,12 +198,11 @@ def get_client(endpoint='tcp://127.0.0.1:10789', service='hedgehog_server', ctx=
 def entry_point(endpoint='tcp://127.0.0.1:10789', service='hedgehog_server', ctx=None):
     def entry(func):
         client = get_client(endpoint, service, ctx)
-        with client:
-            try:
-                func(client)
-            finally:
-                for i in range(0, 4):
-                    client.move(i, 0)
-                    client.set_servo(i, False, 1000)
+        try:
+            func(client)
+        finally:
+            for i in range(0, 4):
+                client.move(i, 0)
+                client.set_servo(i, False, 1000)
 
     return lambda func: (lambda: entry(func))
