@@ -6,7 +6,7 @@ from hedgehog.utils.zmq.poller import Poller
 from hedgehog.utils.discovery.service_node import ServiceNode
 from hedgehog.protocol import errors, messages
 from hedgehog.protocol.messages import ack, io, analog, digital, motor, servo, process
-from .async import AsyncRegistry, MotorUpdateHandler, ProcessUpdateHandler
+from .client_handle import MotorUpdateHandler, ProcessUpdateHandler
 from .client_backend import ClientBackend
 
 _COMMAND = b'\x00'
@@ -30,7 +30,7 @@ class HedgehogClient:
     def __init(self, backend):
         # TODO writes in the backend may interfere with this read
         self.backend = backend
-        self.socket, self.async_registry = backend.connect()
+        self.socket, self.handle = backend.connect()
 
     def _send(self, msg, handler=None):
         reply = self._send_multipart((msg, handler))[0]
@@ -42,7 +42,7 @@ class HedgehogClient:
             return reply
 
     def _send_multipart(self, *cmds):
-        self.async_registry.new_handlers = [cmd[1] for cmd in cmds]
+        self.handle.new_handlers = [cmd[1] for cmd in cmds]
         self.socket.send_multipart_raw([_COMMAND] + [messages.serialize(cmd[0]) for cmd in cmds])
         return self.socket.recv_multipart()
 

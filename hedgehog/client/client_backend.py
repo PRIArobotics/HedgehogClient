@@ -3,7 +3,7 @@ import threading
 import zmq
 from hedgehog.utils.zmq.poller import Poller
 from hedgehog.protocol import messages, sockets
-from .async import AsyncRegistry
+from .client_handle import ClientHandle
 
 _COMMAND = b'\x00'
 _CONNECT = b'\x01'
@@ -32,7 +32,7 @@ class ClientBackend:
             if cmd == _CONNECT:
                 # send back the socket ID
                 identity = header[0]
-                self.async_registries[identity] = AsyncRegistry()
+                self.async_registries[identity] = ClientHandle()
                 socket.send_raw(header, identity)
             elif cmd == _CLOSE:
                 # close the backend

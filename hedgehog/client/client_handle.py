@@ -169,7 +169,8 @@ handler_map = {
     for update in handler.updates
 }
 
-class AsyncRegistry:
+
+class ClientHandle:
     def __init__(self):
         self._new_handlers = None
         self.handlers = {}
