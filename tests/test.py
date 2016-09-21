@@ -167,6 +167,15 @@ class TestClient(unittest.TestCase):
                 self.assertEqual(b''.join((chunk for _, chunk in process_info[STDOUT])), b'asdf\n')
                 self.assertEqual(b''.join((chunk for _, chunk in process_info[STDERR])), b'')
 
+    def test_shutdown(self):
+        ctx = zmq.Context()
+        with HedgehogServer(ctx, 'inproc://controller', handler()):
+            with HedgehogClient(ctx, 'inproc://controller') as client:
+                client.shutdown()
+                with self.assertRaises(errors.FailedCommandError):
+                    client.get_analog(0)
+
+
     def test_find_server(self):
         ctx = zmq.Context()
         node = ServiceNode(ctx, "Hedgehog Server")

@@ -50,6 +50,10 @@ class HedgehogClient(object):
         self.socket.send_multipart_raw([b'COMMAND'] + msgs)
         return self.socket.recv_multipart()
 
+    def shutdown(self):
+        self.socket.send_raw(b'SHUTDOWN')
+        self.socket.recv_raw()
+
     def set_input_state(self, port, pullup):
         self._send(io.StateAction(port, io.INPUT_PULLUP if pullup else io.INPUT_FLOATING))
 
