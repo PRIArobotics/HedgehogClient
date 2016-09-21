@@ -124,8 +124,8 @@ class ClientBackend(object):
     def spawn(self, callback, *args, **kwargs):
         def target(*args, **kwargs):
             from . import HedgehogClient
-            client = HedgehogClient._backend_new(self)
-            callback(client, *args, **kwargs)
+            with HedgehogClient._backend_new(self) as client:
+                callback(client, *args, **kwargs)
 
         threading.Thread(target=target, args=args, kwargs=kwargs).start()
 

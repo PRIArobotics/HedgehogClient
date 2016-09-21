@@ -17,6 +17,12 @@ class HedgehogClient(object):
         backend = ClientBackend(ctx, endpoint)
         self.__init(backend)
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+
     @classmethod
     def _backend_new(cls, backend):
         self = cls.__new__(cls)
@@ -197,12 +203,12 @@ def get_client(endpoint='tcp://127.0.0.1:10789', service='hedgehog_server', ctx=
 
 def entry_point(endpoint='tcp://127.0.0.1:10789', service='hedgehog_server', ctx=None):
     def entry(func):
-        client = get_client(endpoint, service, ctx)
-        try:
-            func(client)
-        finally:
-            for i in range(0, 4):
-                client.move(i, 0)
-                client.set_servo(i, False, 1000)
+        with get_client(endpoint, service, ctx) as client:
+            try:
+                func(client)
+            finally:
+                for i in range(0, 4):
+                    client.move(i, 0)
+                    client.set_servo(i, False, 1000)
 
     return lambda func: (lambda: entry(func))
