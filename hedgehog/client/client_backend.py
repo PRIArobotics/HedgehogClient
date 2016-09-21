@@ -4,6 +4,7 @@ import threading
 import zmq
 
 from hedgehog.protocol import messages, sockets
+from hedgehog.protocol.messages import motor, servo
 from hedgehog.protocol.messages.ack import Acknowledgement, FAILED_COMMAND
 from hedgehog.utils.zmq.pipe import extended_pipe
 from hedgehog.utils.zmq.poller import Poller
@@ -89,7 +90,10 @@ class ClientBackend(object):
 
         @command(b'SHUTDOWN')
         def handle_shutdown(header):
-            self.shutdown = True
+            if not self.shutdown:
+                self.shutdown = True
+                self.backend.send_multipart([], [motor.Action(port, motor.POWER, 0) for port in range(0, 4)] +
+                                                [servo.Action(port, False, 0) for port in range(0, 4)])
             self.frontend.send_raw(header, b'')
 
         @command(b'COMMAND')
@@ -106,6 +110,9 @@ class ClientBackend(object):
             # receive from the backend
             header, msgs = self.backend.recv_multipart()
             assert len(msgs) > 0
+            if len(header) == 0:
+                # sent by the backend for shutdown, ignore
+                return
 
             client_handle = self.clients[header[0]]
 
