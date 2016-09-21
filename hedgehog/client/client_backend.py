@@ -81,6 +81,7 @@ class ClientBackend(object):
         @command(b'DISCONNECT')
         def handle_disconnect(header):
             del self.clients[header[0]]
+            # TODO what if we have a handler registered, but all clients are offline right now?
             if len(self.clients) == 0:
                 self.terminate()
 
