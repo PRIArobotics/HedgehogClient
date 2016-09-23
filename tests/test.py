@@ -175,7 +175,6 @@ class TestClient(unittest.TestCase):
                 with self.assertRaises(errors.FailedCommandError):
                     client.get_analog(0)
 
-
     def test_find_server(self):
         ctx = zmq.Context()
         node = ServiceNode(ctx, "Hedgehog Server")
