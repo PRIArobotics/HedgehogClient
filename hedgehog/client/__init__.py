@@ -50,6 +50,9 @@ class HedgehogClient(object):
         self.socket.send_multipart_raw([b'COMMAND'] + msgs)
         return self.socket.recv_multipart()
 
+    def spawn(self, callback, *args, **kwargs):
+        self.backend.spawn(callback, *args, **kwargs)
+
     def shutdown(self):
         self.socket.send_raw(b'SHUTDOWN')
         self.socket.recv_raw()
