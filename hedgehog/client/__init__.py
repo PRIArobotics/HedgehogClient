@@ -124,6 +124,7 @@ class HedgehogClient(object):
     def close(self):
         if not self.socket.socket.closed:
             self.socket.send_raw(b'DISCONNECT')
+            self.socket.recv_raw()
             self.socket.close()
 
     def __del__(self):
@@ -214,8 +215,6 @@ def entry_point(endpoint='tcp://127.0.0.1:10789', service='hedgehog_server', ctx
             try:
                 func(client)
             finally:
-                for i in range(0, 4):
-                    client.move(i, 0)
-                    client.set_servo(i, False, 1000)
+                client.shutdown()
 
     return lambda func: (lambda: entry(func))
