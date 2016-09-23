@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 class HedgehogClient(object):
     def __init__(self, ctx, endpoint='tcp://127.0.0.1:10789'):
         backend = ClientBackend(ctx, endpoint)
-        self.__init(backend)
+        self.__init(backend, False)
 
     def __enter__(self):
         return self
@@ -24,14 +24,14 @@ class HedgehogClient(object):
         self.close()
 
     @classmethod
-    def _backend_new(cls, backend):
+    def _backend_new(cls, backend, daemon):
         self = cls.__new__(cls)
-        self.__init(backend)
+        self.__init(backend, daemon)
         return self
 
-    def __init(self, backend):
+    def __init(self, backend, daemon):
         self.backend = backend
-        self.socket, self.handle = backend._connect()
+        self.socket, self.handle = backend._connect(daemon)
 
     def _send(self, msg, handler=None):
         reply = self._send_multipart((msg, handler))[0]
@@ -50,8 +50,8 @@ class HedgehogClient(object):
         self.socket.send_multipart_raw([b'COMMAND'] + msgs)
         return self.socket.recv_multipart()
 
-    def spawn(self, callback, *args, **kwargs):
-        self.backend.spawn(callback, *args, **kwargs)
+    def spawn(self, callback, *args, daemon=False, **kwargs):
+        self.backend.spawn(callback, *args, daemon=daemon, **kwargs)
 
     def shutdown(self):
         self.socket.send_raw(b'SHUTDOWN')

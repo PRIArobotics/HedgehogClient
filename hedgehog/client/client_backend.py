@@ -93,6 +93,8 @@ class ClientBackend(object):
             # TODO what if we have a handler registered, but all clients are offline right now?
             if len(self.clients) == 0:
                 self.terminate()
+            elif all(client.daemon for client in self.clients.values()):
+                self.shutdown()
 
         @command(b'SHUTDOWN')
         def handle_shutdown(header):
@@ -132,7 +134,7 @@ class ClientBackend(object):
 
         self.poller.register(self.backend.socket, zmq.POLLIN, handle)
 
-    def _connect(self):
+    def _connect(self, daemon):
         socket = Socket(self.ctx, zmq.REQ)
         socket.connect(self.endpoint)
         socket = sockets.ReqWrapper(socket)
@@ -140,13 +142,14 @@ class ClientBackend(object):
         socket.recv_raw()
         self._pipe_frontend.wait()
         client_handle = self._pipe_frontend.pop()
+        client_handle.daemon = daemon
         self._pipe_frontend.signal()
         return socket, client_handle
 
-    def spawn(self, callback, *args, **kwargs):
+    def spawn(self, callback, *args, daemon=False, **kwargs):
         def target(*args, **kwargs):
             from . import HedgehogClient
-            with HedgehogClient._backend_new(self) as client:
+            with HedgehogClient._backend_new(self, daemon) as client:
                 callback(client, *args, **kwargs)
 
         threading.Thread(target=target, args=args, kwargs=kwargs).start()
