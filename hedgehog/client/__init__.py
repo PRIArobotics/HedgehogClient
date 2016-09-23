@@ -31,7 +31,7 @@ class HedgehogClient(object):
 
     def __init(self, backend):
         self.backend = backend
-        self.socket, self.handle = backend.connect()
+        self.socket, self.handle = backend._connect()
 
     def _send(self, msg, handler=None):
         reply = self._send_multipart((msg, handler))[0]

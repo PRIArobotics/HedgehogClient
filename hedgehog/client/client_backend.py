@@ -129,7 +129,7 @@ class ClientBackend(object):
 
         self.poller.register(self.backend.socket, zmq.POLLIN, handle)
 
-    def connect(self):
+    def _connect(self):
         socket = Socket(self.ctx, zmq.REQ)
         socket.connect(self.endpoint)
         socket = sockets.ReqWrapper(socket)
