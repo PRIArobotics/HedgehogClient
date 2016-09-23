@@ -209,12 +209,22 @@ def get_client(endpoint='tcp://127.0.0.1:10789', service='hedgehog_server', ctx=
     return HedgehogClient(ctx, endpoint)
 
 
-def entry_point(endpoint='tcp://127.0.0.1:10789', service='hedgehog_server', ctx=None):
+def entry_point(endpoint='tcp://127.0.0.1:10789', emergency=None, service='hedgehog_server', ctx=None):
+    # TODO a remote application's emergency_stop is remote, so it won't work in case of a disconnection!
+    def emergency_stop(client):
+        try:
+            while not client.get_digital(emergency):
+                time.sleep(0.1)
+            client.shutdown()
+        except errors.FailedCommandError:
+            # the backend was shutdown; that means we don't need to do it, and that the program should terminate
+            # we do our part and let this thread terminate
+            pass
+
     def entry(func):
         with get_client(endpoint, service, ctx) as client:
-            try:
-                func(client)
-            finally:
-                client.shutdown()
+            if emergency is not None:
+                client.spawn(emergency_stop, daemon=True)
+            func(client)
 
     return lambda func: (lambda: entry(func))

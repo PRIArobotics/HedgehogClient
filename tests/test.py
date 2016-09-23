@@ -204,6 +204,15 @@ class TestClient(unittest.TestCase):
 
             main()
 
+    def test_entry_point_with_emergency_shutdown(self):
+        ctx = zmq.Context()
+        with HedgehogServer(ctx, 'inproc://controller', handler()):
+            @entry_point('inproc://controller', emergency=0, ctx=ctx)
+            def main(client):
+                self.assertEqual(client.get_analog(0), 0)
+
+            main()
+
 
 if __name__ == '__main__':
     unittest.main()
