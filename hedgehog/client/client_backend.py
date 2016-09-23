@@ -51,9 +51,15 @@ class ClientBackend(object):
         self.poller = Poller()
         self.register_frontend()
         self.register_backend()
-        self.shutdown = False
+        self._shutdown = False
 
         threading.Thread(target=self.run).start()
+
+    def shutdown(self):
+        if not self._shutdown:
+            self._shutdown = True
+            self.backend.send_multipart([], [motor.Action(port, motor.POWER, 0) for port in range(0, 4)] +
+                                        [servo.Action(port, False, 0) for port in range(0, 4)])
 
     def terminate(self):
         for socket in list(self.poller.sockets):
@@ -90,16 +96,13 @@ class ClientBackend(object):
 
         @command(b'SHUTDOWN')
         def handle_shutdown(header):
-            if not self.shutdown:
-                self.shutdown = True
-                self.backend.send_multipart([], [motor.Action(port, motor.POWER, 0) for port in range(0, 4)] +
-                                                [servo.Action(port, False, 0) for port in range(0, 4)])
+            self.shutdown()
             self.frontend.send_raw(header, b'')
 
         @command(b'COMMAND')
         def handle_command(header, *msgs_raw):
             assert len(msgs_raw) > 0
-            if self.shutdown:
+            if self._shutdown:
                 msgs = [Acknowledgement(FAILED_COMMAND, "Emergency Shutdown activated") for _ in msgs_raw]
                 self.frontend.send_multipart(header, msgs)
             else:
