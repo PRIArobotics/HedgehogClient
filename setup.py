@@ -19,7 +19,7 @@ with open(path.join(here, 'README.rst'), encoding='utf-8') as f:
 
 setup(
     name='hedgehog-client',
-    version='0.1.0',
+    version='0.1.1',
     description='Client library for communicating with Hedgehog Robot Controllers',
     long_description=long_description,
     url="https://github.com/PRIArobotics/HedgehogClient",
