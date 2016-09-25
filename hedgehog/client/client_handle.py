@@ -172,6 +172,7 @@ class ClientHandle(object):
     def __init__(self):
         self.queue = Queue()
         self.handlers = {handler: {} for handler in handler_types}
+        self.daemon = False
 
     def push(self, obj):
         self.queue.put(obj)

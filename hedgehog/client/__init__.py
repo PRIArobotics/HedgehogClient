@@ -15,17 +15,23 @@ logger = logging.getLogger(__name__)
 class HedgehogClient(object):
     def __init__(self, ctx, endpoint='tcp://127.0.0.1:10789'):
         backend = ClientBackend(ctx, endpoint)
-        self.__init(backend)
+        self.__init(backend, False)
 
-    @classmethod
-    def _backend_new(cls, backend):
-        self = cls.__new__(cls)
-        self.__init(backend)
+    def __enter__(self):
         return self
 
-    def __init(self, backend):
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+
+    @classmethod
+    def _backend_new(cls, backend, daemon):
+        self = cls.__new__(cls)
+        self.__init(backend, daemon)
+        return self
+
+    def __init(self, backend, daemon):
         self.backend = backend
-        self.socket, self.handle = backend.connect()
+        self.socket, self.handle = backend._connect(daemon)
 
     def _send(self, msg, handler=None):
         reply = self._send_multipart((msg, handler))[0]
@@ -43,6 +49,13 @@ class HedgehogClient(object):
         self.handle.push(handlers)
         self.socket.send_multipart_raw([b'COMMAND'] + msgs)
         return self.socket.recv_multipart()
+
+    def spawn(self, callback, *args, daemon=False, **kwargs):
+        self.backend.spawn(callback, *args, daemon=daemon, **kwargs)
+
+    def shutdown(self):
+        self.socket.send_raw(b'SHUTDOWN')
+        self.socket.recv_raw()
 
     def set_input_state(self, port, pullup):
         self._send(io.StateAction(port, io.INPUT_PULLUP if pullup else io.INPUT_FLOATING))
@@ -111,6 +124,7 @@ class HedgehogClient(object):
     def close(self):
         if not self.socket.socket.closed:
             self.socket.send_raw(b'DISCONNECT')
+            self.socket.recv_raw()
             self.socket.close()
 
     def __del__(self):
@@ -195,14 +209,22 @@ def get_client(endpoint='tcp://127.0.0.1:10789', service='hedgehog_server', ctx=
     return HedgehogClient(ctx, endpoint)
 
 
-def entry_point(endpoint='tcp://127.0.0.1:10789', service='hedgehog_server', ctx=None):
-    def entry(func):
-        client = get_client(endpoint, service, ctx)
+def entry_point(endpoint='tcp://127.0.0.1:10789', emergency=None, service='hedgehog_server', ctx=None):
+    # TODO a remote application's emergency_stop is remote, so it won't work in case of a disconnection!
+    def emergency_stop(client):
         try:
+            while not client.get_digital(emergency):
+                time.sleep(0.1)
+            client.shutdown()
+        except errors.FailedCommandError:
+            # the backend was shutdown; that means we don't need to do it, and that the program should terminate
+            # we do our part and let this thread terminate
+            pass
+
+    def entry(func):
+        with get_client(endpoint, service, ctx) as client:
+            if emergency is not None:
+                client.spawn(emergency_stop, daemon=True)
             func(client)
-        finally:
-            for i in range(0, 4):
-                client.move(i, 0)
-                client.set_servo(i, False, 1000)
 
     return lambda func: (lambda: entry(func))

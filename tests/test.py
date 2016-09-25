@@ -21,10 +21,10 @@ class TestClient(unittest.TestCase):
     def test_multiple_clients(self):
         ctx = zmq.Context()
         with HedgehogServer(ctx, 'inproc://controller', handler()):
-            client1 = HedgehogClient(ctx, 'inproc://controller')
-            client2 = HedgehogClient(ctx, 'inproc://controller')
-            self.assertEqual(client1.get_analog(0), 0)
-            self.assertEqual(client2.get_analog(0), 0)
+            with HedgehogClient(ctx, 'inproc://controller') as client1, \
+                 HedgehogClient(ctx, 'inproc://controller') as client2:
+                self.assertEqual(client1.get_analog(0), 0)
+                self.assertEqual(client2.get_analog(0), 0)
 
     def test_unsupported(self):
         from hedgehog.server import handlers
@@ -35,137 +35,145 @@ class TestClient(unittest.TestCase):
         ctx = zmq.Context()
         handlers = handlers.to_dict(HardwareHandler(HardwareAdapter()), ProcessHandler())
         with HedgehogServer(ctx, 'inproc://controller', handlers):
-            client = HedgehogClient(ctx, 'inproc://controller')
-            with self.assertRaises(errors.UnsupportedCommandError):
-                client.get_analog(0)
+            with HedgehogClient(ctx, 'inproc://controller') as client:
+                with self.assertRaises(errors.UnsupportedCommandError):
+                    client.get_analog(0)
 
     def test_set_input_state(self):
         ctx = zmq.Context()
         with HedgehogServer(ctx, 'inproc://controller', handler()):
-            client = HedgehogClient(ctx, 'inproc://controller')
-            self.assertEqual(client.set_input_state(0, False), None)
+            with HedgehogClient(ctx, 'inproc://controller') as client:
+                self.assertEqual(client.set_input_state(0, False), None)
 
     def test_get_analog(self):
         ctx = zmq.Context()
         with HedgehogServer(ctx, 'inproc://controller', handler()):
-            client = HedgehogClient(ctx, 'inproc://controller')
-            self.assertEqual(client.get_analog(0), 0)
+            with HedgehogClient(ctx, 'inproc://controller') as client:
+                self.assertEqual(client.get_analog(0), 0)
 
     def test_get_digital(self):
         ctx = zmq.Context()
         with HedgehogServer(ctx, 'inproc://controller', handler()):
-            client = HedgehogClient(ctx, 'inproc://controller')
-            self.assertEqual(client.get_digital(0), False)
+            with HedgehogClient(ctx, 'inproc://controller') as client:
+                self.assertEqual(client.get_digital(0), False)
 
     def test_set_digital_output(self):
         ctx = zmq.Context()
         with HedgehogServer(ctx, 'inproc://controller', handler()):
-            client = HedgehogClient(ctx, 'inproc://controller')
-            self.assertEqual(client.set_digital_output(0, False), None)
+            with HedgehogClient(ctx, 'inproc://controller') as client:
+                self.assertEqual(client.set_digital_output(0, False), None)
 
     def test_set_motor(self):
         ctx = zmq.Context()
         with HedgehogServer(ctx, 'inproc://controller', handler()):
-            client = HedgehogClient(ctx, 'inproc://controller')
-            self.assertEqual(client.set_motor(0, POWER, 100), None)
+            with HedgehogClient(ctx, 'inproc://controller') as client:
+                self.assertEqual(client.set_motor(0, POWER, 100), None)
 
     def test_get_motor(self):
         ctx = zmq.Context()
         with HedgehogServer(ctx, 'inproc://controller', handler()):
-            client = HedgehogClient(ctx, 'inproc://controller')
-            self.assertEqual(client.get_motor(0), (0, 0))
+            with HedgehogClient(ctx, 'inproc://controller') as client:
+                self.assertEqual(client.get_motor(0), (0, 0))
 
     def test_set_motor_position(self):
         ctx = zmq.Context()
         with HedgehogServer(ctx, 'inproc://controller', handler()):
-            client = HedgehogClient(ctx, 'inproc://controller')
-            self.assertEqual(client.set_motor_position(0, 0), None)
+            with HedgehogClient(ctx, 'inproc://controller') as client:
+                self.assertEqual(client.set_motor_position(0, 0), None)
 
     def test_set_servo(self):
         ctx = zmq.Context()
         with HedgehogServer(ctx, 'inproc://controller', handler()):
-            client = HedgehogClient(ctx, 'inproc://controller')
-            self.assertEqual(client.set_servo(0, False, 0), None)
+            with HedgehogClient(ctx, 'inproc://controller') as client:
+                self.assertEqual(client.set_servo(0, False, 0), None)
 
     def test_execute_process_no_streams(self):
         ctx = zmq.Context()
         with HedgehogServer(ctx, 'inproc://controller', handler()):
-            client = HedgehogClient(ctx, 'inproc://controller')
-            exit_a, exit_b = pipe(ctx)
+            with HedgehogClient(ctx, 'inproc://controller') as client:
+                exit_a, exit_b = pipe(ctx)
 
-            process_info = {
-            }
+                process_info = {
+                }
 
-            def on_exit(client, pid, exit_code):
-                process_info['exit'] = (pid, exit_code)
+                def on_exit(client, pid, exit_code):
+                    process_info['exit'] = (pid, exit_code)
 
-                exit_b.send(b'')
+                    exit_b.send(b'')
 
-            pid = client.execute_process('echo', 'asdf', on_exit=on_exit)
-            client.send_process_data(pid)
+                pid = client.execute_process('echo', 'asdf', on_exit=on_exit)
+                client.send_process_data(pid)
 
-            exit_a.recv()
-            self.assertEqual(process_info['exit'], (pid, 0))
+                exit_a.recv()
+                self.assertEqual(process_info['exit'], (pid, 0))
 
     def test_execute_process_one_stream(self):
         ctx = zmq.Context()
         with HedgehogServer(ctx, 'inproc://controller', handler()):
-            client = HedgehogClient(ctx, 'inproc://controller')
-            exit_a, exit_b = pipe(ctx)
+            with HedgehogClient(ctx, 'inproc://controller') as client:
+                exit_a, exit_b = pipe(ctx)
 
-            process_info = {
-                STDOUT: [],
-            }
+                process_info = {
+                    STDOUT: [],
+                }
 
-            def on_stream(client, pid, fileno, chunk):
-                time.sleep(0.1)
-                process_info[fileno].append((pid, chunk))
+                def on_stream(client, pid, fileno, chunk):
+                    time.sleep(0.1)
+                    process_info[fileno].append((pid, chunk))
 
-            def on_exit(client, pid, exit_code):
-                process_info['exit'] = (pid, exit_code)
+                def on_exit(client, pid, exit_code):
+                    process_info['exit'] = (pid, exit_code)
 
-                exit_b.send(b'')
+                    exit_b.send(b'')
 
-            pid = client.execute_process('echo', 'asdf', on_stdout=on_stream, on_exit=on_exit)
-            client.send_process_data(pid)
+                pid = client.execute_process('echo', 'asdf', on_stdout=on_stream, on_exit=on_exit)
+                client.send_process_data(pid)
 
-            exit_a.recv()
-            self.assertEqual(process_info['exit'], (pid, 0))
-            for pid_, _ in process_info[STDOUT]:
-                self.assertEqual(pid_, pid)
-            self.assertEqual(b''.join((chunk for _, chunk in process_info[STDOUT])), b'asdf\n')
+                exit_a.recv()
+                self.assertEqual(process_info['exit'], (pid, 0))
+                for pid_, _ in process_info[STDOUT]:
+                    self.assertEqual(pid_, pid)
+                self.assertEqual(b''.join((chunk for _, chunk in process_info[STDOUT])), b'asdf\n')
 
     def test_execute_process_two_streams(self):
         ctx = zmq.Context()
         with HedgehogServer(ctx, 'inproc://controller', handler()):
-            client = HedgehogClient(ctx, 'inproc://controller')
-            exit_a, exit_b = pipe(ctx)
+            with HedgehogClient(ctx, 'inproc://controller') as client:
+                exit_a, exit_b = pipe(ctx)
 
-            process_info = {
-                STDOUT: [],
-                STDERR: [],
-            }
+                process_info = {
+                    STDOUT: [],
+                    STDERR: [],
+                }
 
-            def on_stream(client, pid, fileno, chunk):
-                time.sleep(0.1)
-                process_info[fileno].append((pid, chunk))
+                def on_stream(client, pid, fileno, chunk):
+                    time.sleep(0.1)
+                    process_info[fileno].append((pid, chunk))
 
-            def on_exit(client, pid, exit_code):
-                process_info['exit'] = (pid, exit_code)
+                def on_exit(client, pid, exit_code):
+                    process_info['exit'] = (pid, exit_code)
 
-                exit_b.send(b'')
+                    exit_b.send(b'')
 
-            pid = client.execute_process('echo', 'asdf', on_stdout=on_stream, on_stderr=on_stream, on_exit=on_exit)
-            client.send_process_data(pid)
+                pid = client.execute_process('echo', 'asdf', on_stdout=on_stream, on_stderr=on_stream, on_exit=on_exit)
+                client.send_process_data(pid)
 
-            exit_a.recv()
-            self.assertEqual(process_info['exit'], (pid, 0))
-            for pid_, _ in process_info[STDOUT]:
-                self.assertEqual(pid_, pid)
-            for pid_, _ in process_info[STDERR]:
-                self.assertEqual(pid_, pid)
-            self.assertEqual(b''.join((chunk for _, chunk in process_info[STDOUT])), b'asdf\n')
-            self.assertEqual(b''.join((chunk for _, chunk in process_info[STDERR])), b'')
+                exit_a.recv()
+                self.assertEqual(process_info['exit'], (pid, 0))
+                for pid_, _ in process_info[STDOUT]:
+                    self.assertEqual(pid_, pid)
+                for pid_, _ in process_info[STDERR]:
+                    self.assertEqual(pid_, pid)
+                self.assertEqual(b''.join((chunk for _, chunk in process_info[STDOUT])), b'asdf\n')
+                self.assertEqual(b''.join((chunk for _, chunk in process_info[STDERR])), b'')
+
+    def test_shutdown(self):
+        ctx = zmq.Context()
+        with HedgehogServer(ctx, 'inproc://controller', handler()):
+            with HedgehogClient(ctx, 'inproc://controller') as client:
+                client.shutdown()
+                with self.assertRaises(errors.FailedCommandError):
+                    client.get_analog(0)
 
     def test_find_server(self):
         ctx = zmq.Context()
@@ -184,13 +192,22 @@ class TestClient(unittest.TestCase):
     def test_get_client(self):
         ctx = zmq.Context()
         with HedgehogServer(ctx, 'inproc://controller', handler()):
-            client = get_client('inproc://controller', ctx=ctx)
-            self.assertEqual(client.get_analog(0), 0)
+            with get_client('inproc://controller', ctx=ctx) as client:
+                self.assertEqual(client.get_analog(0), 0)
 
     def test_entry_point(self):
         ctx = zmq.Context()
         with HedgehogServer(ctx, 'inproc://controller', handler()):
             @entry_point('inproc://controller', ctx=ctx)
+            def main(client):
+                self.assertEqual(client.get_analog(0), 0)
+
+            main()
+
+    def test_entry_point_with_emergency_shutdown(self):
+        ctx = zmq.Context()
+        with HedgehogServer(ctx, 'inproc://controller', handler()):
+            @entry_point('inproc://controller', emergency=0, ctx=ctx)
             def main(client):
                 self.assertEqual(client.get_analog(0), 0)
 
