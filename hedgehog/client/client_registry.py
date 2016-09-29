@@ -95,7 +95,8 @@ class MotorUpdateHandler(EventHandler):
 
 class ProcessUpdateHandler(EventHandler):
     pid = None
-    handler = None
+    stdout_handler = None
+    stderr_handler = None
 
     def __init__(self, on_stdout, on_stderr, on_exit):
         self.on_stdout = on_stdout
@@ -107,24 +108,58 @@ class ProcessUpdateHandler(EventHandler):
         self.events = {(process.StreamUpdate, self.pid),
                        (process.ExitUpdate, self.pid)}
 
+        exit_a, exit_b = pipe(backend.ctx)
+
         @coroutine
-        def handle_process_exit_update():
+        def handle_stdout_exit():
+            while True:
+                client, update = yield
+                if self.on_stdout is not None:
+                    self.on_stdout(client, self.pid, update.fileno, update.chunk)
+                if update.chunk == b'':
+                    break
+
             client, update = yield
-            self.on_exit(client, self.pid, update.exit_code)
-            self.handler.shutdown()
+
+            exit_a.wait()
+            if self.on_exit is not None:
+                self.on_exit(client, self.pid, update.exit_code)
+
+            self.stdout_handler.shutdown()
             yield
 
-        self.handler = _EventHandler(backend, handle_process_exit_update())
-        backend.spawn(self.handler.run)
+        @coroutine
+        def handle_stderr():
+            while True:
+                client, update = yield
+                if self.on_stderr is not None:
+                    self.on_stderr(client, self.pid, update.fileno, update.chunk)
+                if update.chunk == b'':
+                    break
+
+            exit_b.signal()
+            self.stderr_handler.shutdown()
+            yield
+
+        self.stdout_handler = _EventHandler(backend, handle_stdout_exit())
+        self.stderr_handler = _EventHandler(backend, handle_stderr())
+        backend.spawn(self.stdout_handler.run)
+        backend.spawn(self.stderr_handler.run)
 
     def update(self, update):
-        if isinstance(update, process.ExitUpdate):
-            self.handler.update(update)
+        if isinstance(update, process.StreamUpdate):
+            if update.fileno == process.STDOUT:
+                self.stdout_handler.update(update)
+            else:
+                self.stderr_handler.update(update)
+        elif isinstance(update, process.ExitUpdate):
+            self.stdout_handler.update(update)
         else:
-            print(update)
+            assert False, update
 
     def _shutdown(self):
-        self.handler.shutdown()
+        self.stdout_handler.shutdown()
+        self.stderr_handler.shutdown()
 
 
 class ClientHandle(object):

@@ -3,19 +3,17 @@ import traceback
 import unittest
 
 import zmq
-import time
-from hedgehog.utils.zmq.pipe import pipe
-from hedgehog.utils.zmq.socket import Socket
+from hedgehog.client import HedgehogClient, find_server, get_client, entry_point
+from hedgehog.protocol import errors, sockets
+from hedgehog.protocol.messages import ack, analog, digital, io, motor, servo, process
 from hedgehog.server import handlers, HedgehogServer
 from hedgehog.server.handlers.hardware import HardwareHandler
 from hedgehog.server.handlers.process import ProcessHandler
 from hedgehog.server.hardware.simulated import SimulatedHardwareAdapter
+from hedgehog.utils import coroutine
 from hedgehog.utils.discovery.service_node import ServiceNode
-from hedgehog.client import HedgehogClient, find_server, get_client, entry_point
-from hedgehog.protocol import errors, sockets
-from hedgehog.protocol.messages import ack, analog, digital, io, motor, servo, process
-from hedgehog.protocol.messages.motor import POWER, BRAKE, VELOCITY
-from hedgehog.protocol.messages.process import STDOUT, STDERR
+from hedgehog.utils.zmq.pipe import pipe
+from hedgehog.utils.zmq.socket import Socket
 
 
 def handler():
@@ -228,11 +226,11 @@ class TestHedgehogClientAPI(unittest.TestCase):
         @HedgehogServerDummy(self, ctx, 'inproc://controller')
         def thread(server):
             ident, msg = server.socket.recv()
-            self.assertEqual(msg, motor.Action(0, POWER, 100))
+            self.assertEqual(msg, motor.Action(0, motor.POWER, 100))
             server.socket.send(ident, ack.Acknowledgement())
 
         with HedgehogClient(ctx, 'inproc://controller') as client:
-            self.assertEqual(client.set_motor(0, POWER, 100), None)
+            self.assertEqual(client.set_motor(0, motor.POWER, 100), None)
 
         thread.join()
 
@@ -278,7 +276,7 @@ class TestHedgehogClientAPI(unittest.TestCase):
 
         thread.join()
 
-    def test_execute_process_no_handlers(self):
+    def test_execute_process_handle_nothing(self):
         ctx = zmq.Context()
 
         @HedgehogServerDummy(self, ctx, 'inproc://controller')
@@ -319,91 +317,76 @@ class TestHedgehogClientAPI(unittest.TestCase):
 
             self.assertEqual(client.execute_process('echo', 'asdf', on_exit=on_exit), 2345)
 
-        # exit_a.wait()
+        exit_a.wait()
 
         thread.join()
 
-    def test_execute_process_no_streams(self):
+    def test_execute_process_handle_stream(self):
         ctx = zmq.Context()
-        with HedgehogServer(ctx, 'inproc://controller', handler()):
-            with HedgehogClient(ctx, 'inproc://controller') as client:
-                exit_a, exit_b = pipe(ctx)
 
-                process_info = {
-                }
+        @HedgehogServerDummy(self, ctx, 'inproc://controller')
+        def thread(server):
+            ident, msg = server.socket.recv()
+            self.assertEqual(msg, process.ExecuteRequest('echo', 'asdf'))
+            server.socket.send(ident, process.ExecuteReply(2345))
+            server.socket.send(ident, process.StreamUpdate(2345, process.STDOUT, b'asdf\n'))
+            server.socket.send(ident, process.StreamUpdate(2345, process.STDOUT))
+            server.socket.send(ident, process.StreamUpdate(2345, process.STDERR))
+            server.socket.send(ident, process.ExitUpdate(2345, 0))
 
-                def on_exit(client, pid, exit_code):
-                    process_info['exit'] = (pid, exit_code)
+        exit_a, exit_b = pipe(ctx)
 
-                    exit_b.send(b'')
+        with HedgehogClient(ctx, 'inproc://controller') as client:
+            @coroutine
+            def on_stdout():
+                client, pid, fileno, chunk = yield
+                self.assertEqual(pid, 2345)
+                self.assertEqual(fileno, process.STDOUT)
+                self.assertEqual(chunk, b'asdf\n')
 
-                pid = client.execute_process('echo', 'asdf', on_exit=on_exit)
-                client.send_process_data(pid)
+                client, pid, fileno, chunk = yield
+                self.assertEqual(pid, 2345)
+                self.assertEqual(fileno, process.STDOUT)
+                self.assertEqual(chunk, b'')
 
-                exit_a.recv()
-                self.assertEqual(process_info['exit'], (pid, 0))
+                exit_b.signal()
+                yield
 
-    def test_execute_process_one_stream(self):
+            self.assertEqual(client.execute_process('echo', 'asdf', on_stdout=on_stdout()), 2345)
+
+        exit_a.wait()
+
+        thread.join()
+
+    def test_execute_process_handle_input(self):
         ctx = zmq.Context()
-        with HedgehogServer(ctx, 'inproc://controller', handler()):
-            with HedgehogClient(ctx, 'inproc://controller') as client:
-                exit_a, exit_b = pipe(ctx)
 
-                process_info = {
-                    STDOUT: [],
-                }
+        @HedgehogServerDummy(self, ctx, 'inproc://controller')
+        def thread(server):
+            ident, msg = server.socket.recv()
+            self.assertEqual(msg, process.ExecuteRequest('cat'))
+            server.socket.send(ident, process.ExecuteReply(2345))
 
-                def on_stream(client, pid, fileno, chunk):
-                    time.sleep(0.1)
-                    process_info[fileno].append((pid, chunk))
+            ident, msg = server.socket.recv()
+            self.assertEqual(msg, process.StreamAction(2345, process.STDIN, b'asdf\n'))
+            server.socket.send(ident, ack.Acknowledgement())
 
-                def on_exit(client, pid, exit_code):
-                    process_info['exit'] = (pid, exit_code)
+            server.socket.send(ident, process.StreamUpdate(2345, process.STDOUT, b'asdf\n'))
 
-                    exit_b.send(b'')
+            ident, msg = server.socket.recv()
+            self.assertEqual(msg, process.StreamAction(2345, process.STDIN))
+            server.socket.send(ident, ack.Acknowledgement())
 
-                pid = client.execute_process('echo', 'asdf', on_stdout=on_stream, on_exit=on_exit)
-                client.send_process_data(pid)
+            server.socket.send(ident, process.StreamUpdate(2345, process.STDOUT))
+            server.socket.send(ident, process.StreamUpdate(2345, process.STDERR))
+            server.socket.send(ident, process.ExitUpdate(2345, 0))
 
-                exit_a.recv()
-                self.assertEqual(process_info['exit'], (pid, 0))
-                for pid_, _ in process_info[STDOUT]:
-                    self.assertEqual(pid_, pid)
-                self.assertEqual(b''.join((chunk for _, chunk in process_info[STDOUT])), b'asdf\n')
+        with HedgehogClient(ctx, 'inproc://controller') as client:
+            self.assertEqual(client.execute_process('cat'), 2345)
+            self.assertEqual(client.send_process_data(2345, b'asdf\n'), None)
+            self.assertEqual(client.send_process_data(2345), None)
 
-    def test_execute_process_two_streams(self):
-        ctx = zmq.Context()
-        with HedgehogServer(ctx, 'inproc://controller', handler()):
-            with HedgehogClient(ctx, 'inproc://controller') as client:
-                exit_a, exit_b = pipe(ctx)
-
-                process_info = {
-                    STDOUT: [],
-                    STDERR: [],
-                }
-
-                def on_stream(client, pid, fileno, chunk):
-                    time.sleep(0.1)
-                    process_info[fileno].append((pid, chunk))
-
-                def on_exit(client, pid, exit_code):
-                    process_info['exit'] = (pid, exit_code)
-
-                    exit_b.send(b'')
-
-                pid = client.execute_process('echo', 'asdf', on_stdout=on_stream, on_stderr=on_stream, on_exit=on_exit)
-                client.send_process_data(pid)
-
-                exit_a.recv()
-                self.assertEqual(process_info['exit'], (pid, 0))
-                for pid_, _ in process_info[STDOUT]:
-                    self.assertEqual(pid_, pid)
-                for pid_, _ in process_info[STDERR]:
-                    self.assertEqual(pid_, pid)
-                self.assertEqual(b''.join((chunk for _, chunk in process_info[STDOUT])), b'asdf\n')
-                self.assertEqual(b''.join((chunk for _, chunk in process_info[STDERR])), b'')
-
-    pass
+        thread.join()
 
 
 if __name__ == '__main__':
