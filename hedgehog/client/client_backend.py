@@ -58,6 +58,7 @@ class ClientBackend(object):
     def shutdown(self):
         if not self._shutdown:
             self._shutdown = True
+            self.registry.shutdown()
             self.backend.send_multipart([], [motor.Action(port, motor.POWER, 0) for port in range(0, 4)] +
                                         [servo.Action(port, False, 0) for port in range(0, 4)])
 
@@ -89,7 +90,6 @@ class ClientBackend(object):
         @command(b'DISCONNECT')
         def handle_disconnect(header):
             self.registry.disconnect(header[0])
-            # TODO what if we have a handler registered, but all clients are offline right now?
             if all(client.daemon for client in self.registry.clients.values()):
                 self.shutdown()
             if len(self.registry.clients) == 0:
@@ -108,6 +108,7 @@ class ClientBackend(object):
                 msgs = [Acknowledgement(FAILED_COMMAND, "Emergency Shutdown activated") for _ in msgs_raw]
                 self.frontend.send_multipart(header, msgs)
             else:
+                self.registry.prepare_register(header[0])
                 self.backend.send_multipart(header, [messages.parse(msg) for msg in msgs_raw])
 
     def register_backend(self):
@@ -119,17 +120,15 @@ class ClientBackend(object):
                 # sent by the backend for shutdown, ignore
                 return
 
-            client_handle = self.registry.clients[header[0]]
-
             # either, all messages are replies corresponding to the previous requests,
             # or all messages are asynchronous updates
             if msgs[0].async:
                 # handle asynchronous messages
                 for msg in msgs:
-                    client_handle.handle_async(self, msg)
+                    self.registry.handle_async(msg)
             else:
                 # handle synchronous messages
-                client_handle.handle_register(self, msgs)
+                self.registry.handle_register(header[0], self, msgs)
                 self.frontend.send_multipart(header, msgs)
 
         self.poller.register(self.backend.socket, zmq.POLLIN, handle)

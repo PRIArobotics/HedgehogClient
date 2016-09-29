@@ -278,6 +278,51 @@ class TestHedgehogClientAPI(unittest.TestCase):
 
         thread.join()
 
+    def test_execute_process_no_handlers(self):
+        ctx = zmq.Context()
+
+        @HedgehogServerDummy(self, ctx, 'inproc://controller')
+        def thread(server):
+            ident, msg = server.socket.recv()
+            self.assertEqual(msg, process.ExecuteRequest('echo', 'asdf'))
+            server.socket.send(ident, process.ExecuteReply(2345))
+            server.socket.send(ident, process.StreamUpdate(2345, process.STDOUT, b'asdf\n'))
+            server.socket.send(ident, process.StreamUpdate(2345, process.STDOUT))
+            server.socket.send(ident, process.StreamUpdate(2345, process.STDERR))
+            server.socket.send(ident, process.ExitUpdate(2345, 0))
+
+        with HedgehogClient(ctx, 'inproc://controller') as client:
+            self.assertEqual(client.execute_process('echo', 'asdf'), 2345)
+
+        thread.join()
+
+    def test_execute_process_handle_exit(self):
+        ctx = zmq.Context()
+
+        @HedgehogServerDummy(self, ctx, 'inproc://controller')
+        def thread(server):
+            ident, msg = server.socket.recv()
+            self.assertEqual(msg, process.ExecuteRequest('echo', 'asdf'))
+            server.socket.send(ident, process.ExecuteReply(2345))
+            server.socket.send(ident, process.StreamUpdate(2345, process.STDOUT, b'asdf\n'))
+            server.socket.send(ident, process.StreamUpdate(2345, process.STDOUT))
+            server.socket.send(ident, process.StreamUpdate(2345, process.STDERR))
+            server.socket.send(ident, process.ExitUpdate(2345, 0))
+
+        exit_a, exit_b = pipe(ctx)
+
+        with HedgehogClient(ctx, 'inproc://controller') as client:
+            def on_exit(client, pid, exit_code):
+                self.assertEqual(pid, 2345)
+                self.assertEqual(exit_code, 0)
+                exit_b.signal()
+
+            self.assertEqual(client.execute_process('echo', 'asdf', on_exit=on_exit), 2345)
+
+        # exit_a.wait()
+
+        thread.join()
+
     def test_execute_process_no_streams(self):
         ctx = zmq.Context()
         with HedgehogServer(ctx, 'inproc://controller', handler()):

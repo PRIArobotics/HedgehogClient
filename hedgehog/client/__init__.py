@@ -7,7 +7,7 @@ from hedgehog.utils.discovery.service_node import ServiceNode
 from hedgehog.protocol import errors, messages
 from hedgehog.protocol.messages import ack, io, analog, digital, motor, servo, process
 from .client_backend import ClientBackend
-from .client_handle import MotorUpdateHandler, ProcessUpdateHandler
+from .client_registry import MotorUpdateHandler, ProcessUpdateHandler
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +77,7 @@ class HedgehogClient(object):
         if on_reached is not None:
             if relative is None and absolute is None:
                 raise ValueError("callback given, but no end position")
-            handler = MotorUpdateHandler(port, on_reached)
+            handler = MotorUpdateHandler(on_reached)
         else:
             handler = None
         self._send(motor.Action(port, state, amount, reached_state, relative, absolute), handler)
