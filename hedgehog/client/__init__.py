@@ -1,4 +1,6 @@
 import logging
+import os
+import sys
 import time
 import zmq
 from hedgehog.utils.zmq.actor import CommandRegistry
@@ -7,7 +9,7 @@ from hedgehog.utils.discovery.service_node import ServiceNode
 from hedgehog.protocol import errors, messages
 from hedgehog.protocol.messages import ack, io, analog, digital, motor, servo, process
 from .client_backend import ClientBackend
-from .client_handle import MotorUpdateHandler, ProcessUpdateHandler
+from .client_registry import MotorUpdateHandler, ProcessUpdateHandler
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +79,7 @@ class HedgehogClient(object):
         if on_reached is not None:
             if relative is None and absolute is None:
                 raise ValueError("callback given, but no end position")
-            handler = MotorUpdateHandler(port, on_reached)
+            handler = MotorUpdateHandler(on_reached)
         else:
             handler = None
         self._send(motor.Action(port, state, amount, reached_state, relative, absolute), handler)
@@ -222,6 +224,10 @@ def entry_point(endpoint='tcp://127.0.0.1:10789', emergency=None, service='hedge
             pass
 
     def entry(func):
+        # Force line buffering
+        # TODO is there a cleaner way to do this than to reopen stdout, here?
+        sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 1)
+        sys.stderr = os.fdopen(sys.stderr.fileno(), 'w', 1)
         with get_client(endpoint, service, ctx) as client:
             if emergency is not None:
                 client.spawn(emergency_stop, daemon=True)
