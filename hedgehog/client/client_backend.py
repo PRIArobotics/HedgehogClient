@@ -9,7 +9,7 @@ from hedgehog.protocol.messages.ack import Acknowledgement, FAILED_COMMAND
 from hedgehog.utils.zmq.pipe import extended_pipe
 from hedgehog.utils.zmq.poller import Poller
 from hedgehog.utils.zmq.socket import Socket
-from .client_handle import ClientHandle
+from .client_registry import ClientRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +46,7 @@ class ClientBackend(object):
         # order.
         self._pipe_backend, self._pipe_frontend = extended_pipe(ctx)
 
-        self.clients = {}
+        self.registry = ClientRegistry()
 
         self.poller = Poller()
         self.register_frontend()
@@ -79,8 +79,7 @@ class ClientBackend(object):
 
         @command(b'CONNECT')
         def handle_connect(header):
-            client_handle = ClientHandle()
-            self.clients[header[0]] = client_handle
+            client_handle = self.registry.connect(header[0])
 
             self.frontend.send_raw(header, b'')
             self._pipe_backend.push(client_handle)
@@ -89,11 +88,11 @@ class ClientBackend(object):
 
         @command(b'DISCONNECT')
         def handle_disconnect(header):
-            del self.clients[header[0]]
+            self.registry.disconnect(header[0])
             # TODO what if we have a handler registered, but all clients are offline right now?
-            if all(client.daemon for client in self.clients.values()):
+            if all(client.daemon for client in self.registry.clients.values()):
                 self.shutdown()
-            if len(self.clients) == 0:
+            if len(self.registry.clients) == 0:
                 self.terminate()
             self.frontend.send_raw(header, b'')
 
@@ -120,7 +119,7 @@ class ClientBackend(object):
                 # sent by the backend for shutdown, ignore
                 return
 
-            client_handle = self.clients[header[0]]
+            client_handle = self.registry.clients[header[0]]
 
             # either, all messages are replies corresponding to the previous requests,
             # or all messages are asynchronous updates
