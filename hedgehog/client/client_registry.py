@@ -1,5 +1,6 @@
 from queue import Queue
 from hedgehog.protocol.messages import Msg, ack, motor, process
+from hedgehog.utils import coroutine
 from hedgehog.utils.zmq.actor import CommandRegistry
 from hedgehog.utils.zmq.pipe import pipe
 
@@ -75,11 +76,14 @@ class MotorUpdateHandler(EventHandler):
         self.port = reply.port
         self.events = {(motor.StateUpdate, self.port)}
 
-        def handle_motor_state_update(client, update):
+        @coroutine
+        def handle_motor_state_update():
+            client, update = yield
             self.on_reached(client, self.port, update.state)
             self.handler.shutdown()
+            yield
 
-        self.handler = _EventHandler(backend, handle_motor_state_update)
+        self.handler = _EventHandler(backend, handle_motor_state_update())
         backend.spawn(self.handler.run)
 
     def update(self, update):
@@ -103,11 +107,14 @@ class ProcessUpdateHandler(EventHandler):
         self.events = {(process.StreamUpdate, self.pid),
                        (process.ExitUpdate, self.pid)}
 
-        def handle_process_exit_update(client, update):
+        @coroutine
+        def handle_process_exit_update():
+            client, update = yield
             self.on_exit(client, self.pid, update.exit_code)
             self.handler.shutdown()
+            yield
 
-        self.handler = _EventHandler(backend, handle_process_exit_update)
+        self.handler = _EventHandler(backend, handle_process_exit_update())
         backend.spawn(self.handler.run)
 
     def update(self, update):
