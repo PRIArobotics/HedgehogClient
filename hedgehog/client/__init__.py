@@ -1,4 +1,6 @@
 import logging
+import os
+import sys
 import time
 import zmq
 from hedgehog.utils.zmq.actor import CommandRegistry
@@ -222,6 +224,10 @@ def entry_point(endpoint='tcp://127.0.0.1:10789', emergency=None, service='hedge
             pass
 
     def entry(func):
+        # Force line buffering
+        # TODO is there a cleaner way to do this than to reopen stdout, here?
+        sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 1)
+        sys.stderr = os.fdopen(sys.stderr.fileno(), 'w', 1)
         with get_client(endpoint, service, ctx) as client:
             if emergency is not None:
                 client.spawn(emergency_stop, daemon=True)
