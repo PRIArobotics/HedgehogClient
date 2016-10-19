@@ -215,7 +215,10 @@ def entry_point(endpoint='tcp://127.0.0.1:10789', emergency=None, service='hedge
     # TODO a remote application's emergency_stop is remote, so it won't work in case of a disconnection!
     def emergency_stop(client):
         try:
-            while not client.get_digital(emergency):
+            client.set_input_state(emergency, True)
+            # TODO inverted the condition here as the current firmware seems to provide negative logic values
+            # while not client.get_digital(emergency):
+            while client.get_digital(emergency):
                 time.sleep(0.1)
             client.shutdown()
         except errors.FailedCommandError:
