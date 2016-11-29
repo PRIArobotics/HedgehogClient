@@ -121,6 +121,9 @@ class HedgehogClient(object):
         response = self._send(process.ExecuteRequest(*args, working_dir=working_dir), handler)
         return response.pid
 
+    def signal_process(self, pid, signal=2):
+        self._send(process.SignalAction(pid, signal))
+
     def send_process_data(self, pid, chunk=b''):
         self._send(process.StreamAction(pid, process.STDIN, chunk))
 
