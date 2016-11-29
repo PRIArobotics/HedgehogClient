@@ -3,6 +3,7 @@ import os
 import sys
 import time
 import zmq
+from contextlib import contextmanager
 from hedgehog.utils.zmq.actor import CommandRegistry
 from hedgehog.utils.zmq.poller import Poller
 from hedgehog.utils.discovery.service_node import ServiceNode
@@ -210,8 +211,8 @@ def get_client(endpoint='tcp://127.0.0.1:10789', service='hedgehog_server', ctx=
 
     return HedgehogClient(ctx, endpoint)
 
-
-def entry_point(endpoint='tcp://127.0.0.1:10789', emergency=None, service='hedgehog_server', ctx=None):
+@contextmanager
+def connect(endpoint='tcp://127.0.0.1:10789', emergency=None, service='hedgehog_server', ctx=None):
     # TODO a remote application's emergency_stop is remote, so it won't work in case of a disconnection!
     def emergency_stop(client):
         try:
@@ -226,14 +227,11 @@ def entry_point(endpoint='tcp://127.0.0.1:10789', emergency=None, service='hedge
             # we do our part and let this thread terminate
             pass
 
-    def entry(func):
-        # Force line buffering
-        # TODO is there a cleaner way to do this than to reopen stdout, here?
-        sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 1)
-        sys.stderr = os.fdopen(sys.stderr.fileno(), 'w', 1)
-        with get_client(endpoint, service, ctx) as client:
-            if emergency is not None:
-                client.spawn(emergency_stop, daemon=True)
-            func(client)
-
-    return lambda func: (lambda: entry(func))
+    # Force line buffering
+    # TODO is there a cleaner way to do this than to reopen stdout, here?
+    sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 1)
+    sys.stderr = os.fdopen(sys.stderr.fileno(), 'w', 1)
+    with get_client(endpoint, service, ctx) as client:
+        if emergency is not None:
+            client.spawn(emergency_stop, daemon=True)
+        yield client

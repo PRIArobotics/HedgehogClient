@@ -3,7 +3,7 @@ import traceback
 import unittest
 
 import zmq
-from hedgehog.client import HedgehogClient, find_server, get_client, entry_point
+from hedgehog.client import HedgehogClient, find_server, get_client, connect
 from hedgehog.protocol import errors, sockets
 from hedgehog.protocol.messages import ack, analog, digital, io, motor, servo, process
 from hedgehog.server import handlers, HedgehogServer
@@ -144,23 +144,17 @@ class TestClientConvenienceFunctions(unittest.TestCase):
             with get_client('inproc://controller', ctx=ctx) as client:
                 self.assertEqual(client.get_analog(0), 0)
 
-    def test_entry_point(self):
+    def test_connect(self):
         ctx = zmq.Context()
         with HedgehogServer(ctx, 'inproc://controller', handler()):
-            @entry_point('inproc://controller', ctx=ctx)
-            def main(client):
+            with connect('inproc://controller', ctx=ctx) as client:
                 self.assertEqual(client.get_analog(0), 0)
 
-            main()
-
-    def test_entry_point_with_emergency_shutdown(self):
+    def test_connect_with_emergency_shutdown(self):
         ctx = zmq.Context()
         with HedgehogServer(ctx, 'inproc://controller', handler()):
-            @entry_point('inproc://controller', emergency=0, ctx=ctx)
-            def main(client):
+            with connect('inproc://controller', emergency=0, ctx=ctx) as client:
                 self.assertEqual(client.get_analog(0), 0)
-
-            main()
 
 
 class TestHedgehogClientAPI(unittest.TestCase):
