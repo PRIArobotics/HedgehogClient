@@ -220,7 +220,6 @@ def connect(endpoint='tcp://127.0.0.1:10789', emergency=None, service='hedgehog_
     def emergency_stop(client):
         try:
             client.set_input_state(emergency, True)
-            # TODO inverted the condition here as the current firmware seems to provide negative logic values
             # while not client.get_digital(emergency):
             while client.get_digital(emergency):
                 time.sleep(0.1)
