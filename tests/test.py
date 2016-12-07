@@ -17,7 +17,8 @@ from hedgehog.utils.zmq.socket import Socket
 
 
 def handler():
-    return handlers.to_dict(HardwareHandler(SimulatedHardwareAdapter()), ProcessHandler())
+    adapter = SimulatedHardwareAdapter()
+    return handlers.to_dict(HardwareHandler(adapter), ProcessHandler(adapter))
 
 
 class HedgehogServerDummy(object):
