@@ -3,12 +3,11 @@ import random
 import threading
 import zmq
 
-from hedgehog.protocol import messages, sockets
 from hedgehog.protocol.messages import motor, servo
 from hedgehog.protocol.messages.ack import Acknowledgement, FAILED_COMMAND
+from hedgehog.protocol.sockets import ReqSocket, DealerRouterSocket
 from hedgehog.utils.zmq.pipe import extended_pipe
 from hedgehog.utils.zmq.poller import Poller
-from hedgehog.utils.zmq.socket import Socket
 from .client_registry import ClientRegistry
 
 logger = logging.getLogger(__name__)
@@ -18,20 +17,18 @@ class ClientBackend(object):
     def __init__(self, ctx, endpoint):
         self.ctx = ctx
 
-        frontend = Socket(ctx, zmq.ROUTER).configure(hwm=1000)
+        self.frontend = DealerRouterSocket(ctx, zmq.ROUTER).configure(hwm=1000)
         while True:
             self.endpoint = "inproc://frontend-%04x-%04x" % (random.randint(0, 0x10000), random.randint(0, 0x10000))
             try:
-                frontend.bind(self.endpoint)
+                self.frontend.bind(self.endpoint)
             except zmq.error.ZMQError as err:
                 pass
             else:
                 break
-        self.frontend = sockets.DealerRouterWrapper(frontend)
 
-        backend = ctx.socket(zmq.DEALER)
-        backend.connect(endpoint)
-        self.backend = sockets.DealerRouterWrapper(backend)
+        self.backend = DealerRouterSocket(ctx, zmq.DEALER)
+        self.backend.connect(endpoint)
 
         # We need to give every client a handle to transmit out-of-band data. The simplest approach would be:
         #  Client: CONNECT / store handle in queue / Backend: OK / retrieve handle from queue
@@ -59,8 +56,8 @@ class ClientBackend(object):
         if not self._shutdown:
             self._shutdown = True
             self.registry.shutdown()
-            self.backend.send_multipart([], [motor.Action(port, motor.POWER, 0) for port in range(0, 4)] +
-                                        [servo.Action(port, False, 0) for port in range(0, 4)])
+            self.backend.send_msgs([], [motor.Action(port, motor.POWER, 0) for port in range(0, 4)] +
+                                       [servo.Action(port, False, 0) for port in range(0, 4)])
 
     def terminate(self):
         for socket in list(self.poller.sockets):
@@ -73,16 +70,16 @@ class ClientBackend(object):
             return lambda func: handlers.update({cmd: func})
 
         def handle():
-            header, [cmd, *msgs_raw] = self.frontend.recv_multipart_raw()
+            header, [cmd, *msgs_raw] = self.frontend.recv_msgs_raw()
             handlers[cmd](header, *msgs_raw)
 
-        self.poller.register(self.frontend.socket, zmq.POLLIN, handle)
+        self.poller.register(self.frontend, zmq.POLLIN, handle)
 
         @command(b'CONNECT')
         def handle_connect(header):
             client_handle = self.registry.connect(header[0])
 
-            self.frontend.send_raw(header, b'')
+            self.frontend.send_msg_raw(header, b'')
             self._pipe_backend.push(client_handle)
             self._pipe_backend.signal()
             self._pipe_backend.wait()
@@ -94,27 +91,27 @@ class ClientBackend(object):
                 self.shutdown()
             if len(self.registry.clients) == 0:
                 self.terminate()
-            self.frontend.send_raw(header, b'')
+            self.frontend.send_msg_raw(header, b'')
 
         @command(b'SHUTDOWN')
         def handle_shutdown(header):
             self.shutdown()
-            self.frontend.send_raw(header, b'')
+            self.frontend.send_msg_raw(header, b'')
 
         @command(b'COMMAND')
         def handle_command(header, *msgs_raw):
             assert len(msgs_raw) > 0
             if self._shutdown:
                 msgs = [Acknowledgement(FAILED_COMMAND, "Emergency Shutdown activated") for _ in msgs_raw]
-                self.frontend.send_multipart(header, msgs)
+                self.frontend.send_msgs(header, msgs)
             else:
                 self.registry.prepare_register(header[0])
-                self.backend.send_multipart(header, [messages.parse(msg) for msg in msgs_raw])
+                self.backend.send_msgs_raw(header, msgs_raw)
 
     def register_backend(self):
         def handle():
             # receive from the backend
-            header, msgs = self.backend.recv_multipart()
+            header, msgs = self.backend.recv_msgs()
             assert len(msgs) > 0
             if len(header) == 0:
                 # sent by the backend for shutdown, ignore
@@ -129,16 +126,15 @@ class ClientBackend(object):
             else:
                 # handle synchronous messages
                 self.registry.handle_register(header[0], self, msgs)
-                self.frontend.send_multipart(header, msgs)
+                self.frontend.send_msgs(header, msgs)
 
-        self.poller.register(self.backend.socket, zmq.POLLIN, handle)
+        self.poller.register(self.backend, zmq.POLLIN, handle)
 
     def _connect(self, daemon):
-        socket = Socket(self.ctx, zmq.REQ)
+        socket = ReqSocket(self.ctx, zmq.REQ)
         socket.connect(self.endpoint)
-        socket = sockets.ReqWrapper(socket)
-        socket.send_raw(b'CONNECT')
-        socket.recv_raw()
+        socket.send_msg_raw(b'CONNECT')
+        socket.wait()
         self._pipe_frontend.wait()
         client_handle = self._pipe_frontend.pop()
         client_handle.daemon = daemon

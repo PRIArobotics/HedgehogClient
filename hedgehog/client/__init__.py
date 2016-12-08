@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from hedgehog.utils.zmq.actor import CommandRegistry
 from hedgehog.utils.zmq.poller import Poller
 from hedgehog.utils.discovery.service_node import ServiceNode
-from hedgehog.protocol import errors, messages
+from hedgehog.protocol import errors
 from hedgehog.protocol.messages import ack, io, analog, digital, motor, servo, process
 from .client_backend import ClientBackend
 from .client_registry import MotorUpdateHandler, ProcessUpdateHandler
@@ -46,19 +46,17 @@ class HedgehogClient(object):
             return reply
 
     def _send_multipart(self, *cmds):
-        msgs = [messages.serialize(msg) for msg, _ in cmds]
-        handlers = [handler for _, handler in cmds]
-
-        self.handle.push(handlers)
-        self.socket.send_multipart_raw([b'COMMAND'] + msgs)
-        return self.socket.recv_multipart()
+        self.handle.push([handler for _, handler in cmds])
+        self.socket.send(b'COMMAND', zmq.SNDMORE)
+        self.socket.send_msgs([msg for msg, _ in cmds])
+        return self.socket.recv_msgs()
 
     def spawn(self, callback, *args, daemon=False, **kwargs):
         self.backend.spawn(callback, *args, daemon=daemon, **kwargs)
 
     def shutdown(self):
-        self.socket.send_raw(b'SHUTDOWN')
-        self.socket.recv_raw()
+        self.socket.send_msg_raw(b'SHUTDOWN')
+        self.socket.wait()
 
     def set_input_state(self, port, pullup):
         self._send(io.StateAction(port, io.INPUT_PULLUP if pullup else io.INPUT_FLOATING))
@@ -128,9 +126,9 @@ class HedgehogClient(object):
         self._send(process.StreamAction(pid, process.STDIN, chunk))
 
     def close(self):
-        if not self.socket.socket.closed:
-            self.socket.send_raw(b'DISCONNECT')
-            self.socket.recv_raw()
+        if not self.socket.closed:
+            self.socket.send_msg_raw(b'DISCONNECT')
+            self.socket.wait()
             self.socket.close()
 
     def __del__(self):

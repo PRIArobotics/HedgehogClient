@@ -4,8 +4,9 @@ import unittest
 
 import zmq
 from hedgehog.client import HedgehogClient, find_server, get_client, connect
-from hedgehog.protocol import errors, sockets
+from hedgehog.protocol import errors
 from hedgehog.protocol.messages import ack, analog, digital, io, motor, servo, process
+from hedgehog.protocol.sockets import DealerRouterSocket
 from hedgehog.server import handlers, HedgehogServer
 from hedgehog.server.handlers.hardware import HardwareHandler
 from hedgehog.server.handlers.process import ProcessHandler
@@ -13,7 +14,6 @@ from hedgehog.server.hardware.simulated import SimulatedHardwareAdapter
 from hedgehog.utils import coroutine
 from hedgehog.utils.discovery.service_node import ServiceNode
 from hedgehog.utils.zmq.pipe import pipe
-from hedgehog.utils.zmq.socket import Socket
 
 
 def handler():
@@ -23,9 +23,8 @@ def handler():
 
 class HedgehogServerDummy(object):
     def __init__(self, testcase, ctx, endpoint):
-        socket = Socket(ctx, zmq.ROUTER)
-        socket.bind(endpoint)
-        self.socket = sockets.DealerRouterWrapper(socket)
+        self.socket = DealerRouterSocket(ctx, zmq.ROUTER)
+        self.socket.bind(endpoint)
         self.testcase = testcase
 
     def __call__(self, func):
@@ -33,11 +32,11 @@ class HedgehogServerDummy(object):
             try:
                 func(self)
 
-                ident, msgs = self.socket.recv_multipart()
+                ident, msgs = self.socket.recv_msgs()
                 self.testcase.assertEqual(msgs,
-                                          [motor.Action(port, motor.POWER, 0) for port in range(0, 4)] +
-                                          [servo.Action(port, False, 0) for port in range(0, 4)])
-                self.socket.send_multipart(ident, [ack.Acknowledgement() for i in range(0, 8)])
+                                          tuple(motor.Action(port, motor.POWER, 0) for port in range(0, 4)) +
+                                          tuple(servo.Action(port, False, 0) for port in range(0, 4)))
+                self.socket.send_msgs(ident, [ack.Acknowledgement()] * 8)
 
                 func.exc = None
             except Exception as exc:
@@ -74,13 +73,13 @@ class TestHedgehogClient(unittest.TestCase):
 
         @HedgehogServerDummy(self, ctx, 'inproc://controller')
         def thread(server):
-            ident1, msg = server.socket.recv()
+            ident1, msg = server.socket.recv_msg()
             self.assertEqual(msg, analog.Request(0))
-            server.socket.send(ident1, analog.Update(0, 0))
+            server.socket.send_msg(ident1, analog.Update(0, 0))
 
-            ident2, msg = server.socket.recv()
+            ident2, msg = server.socket.recv_msg()
             self.assertEqual(msg, analog.Request(0))
-            server.socket.send(ident2, analog.Update(0, 0))
+            server.socket.send_msg(ident2, analog.Update(0, 0))
 
             self.assertEqual(ident1[0], ident2[0])
 
@@ -99,9 +98,9 @@ class TestHedgehogClient(unittest.TestCase):
 
         @HedgehogServerDummy(self, ctx, 'inproc://controller')
         def thread(server):
-            ident, msg = server.socket.recv()
+            ident, msg = server.socket.recv_msg()
             self.assertEqual(msg, analog.Request(0))
-            server.socket.send(ident, ack.Acknowledgement(ack.UNSUPPORTED_COMMAND))
+            server.socket.send_msg(ident, ack.Acknowledgement(ack.UNSUPPORTED_COMMAND))
 
         with HedgehogClient(ctx, 'inproc://controller') as client:
             with self.assertRaises(errors.UnsupportedCommandError):
@@ -164,9 +163,9 @@ class TestHedgehogClientAPI(unittest.TestCase):
 
         @HedgehogServerDummy(self, ctx, 'inproc://controller')
         def thread(server):
-            ident, msg = server.socket.recv()
+            ident, msg = server.socket.recv_msg()
             self.assertEqual(msg, io.StateAction(0, io.INPUT_FLOATING))
-            server.socket.send(ident, ack.Acknowledgement())
+            server.socket.send_msg(ident, ack.Acknowledgement())
 
         with HedgehogClient(ctx, 'inproc://controller') as client:
             self.assertEqual(client.set_input_state(0, False), None)
@@ -178,9 +177,9 @@ class TestHedgehogClientAPI(unittest.TestCase):
 
         @HedgehogServerDummy(self, ctx, 'inproc://controller')
         def thread(server):
-            ident, msg = server.socket.recv()
+            ident, msg = server.socket.recv_msg()
             self.assertEqual(msg, analog.Request(0))
-            server.socket.send(ident, analog.Update(0, 0))
+            server.socket.send_msg(ident, analog.Update(0, 0))
 
         with HedgehogClient(ctx, 'inproc://controller') as client:
             self.assertEqual(client.get_analog(0), 0)
@@ -192,9 +191,9 @@ class TestHedgehogClientAPI(unittest.TestCase):
 
         @HedgehogServerDummy(self, ctx, 'inproc://controller')
         def thread(server):
-            ident, msg = server.socket.recv()
+            ident, msg = server.socket.recv_msg()
             self.assertEqual(msg, digital.Request(0))
-            server.socket.send(ident, digital.Update(0, False))
+            server.socket.send_msg(ident, digital.Update(0, False))
 
         with HedgehogClient(ctx, 'inproc://controller') as client:
             self.assertEqual(client.get_digital(0), False)
@@ -206,9 +205,9 @@ class TestHedgehogClientAPI(unittest.TestCase):
 
         @HedgehogServerDummy(self, ctx, 'inproc://controller')
         def thread(server):
-            ident, msg = server.socket.recv()
+            ident, msg = server.socket.recv_msg()
             self.assertEqual(msg, io.StateAction(0, io.OUTPUT_OFF))
-            server.socket.send(ident, ack.Acknowledgement())
+            server.socket.send_msg(ident, ack.Acknowledgement())
 
         with HedgehogClient(ctx, 'inproc://controller') as client:
             self.assertEqual(client.set_digital_output(0, False), None)
@@ -220,9 +219,9 @@ class TestHedgehogClientAPI(unittest.TestCase):
 
         @HedgehogServerDummy(self, ctx, 'inproc://controller')
         def thread(server):
-            ident, msg = server.socket.recv()
+            ident, msg = server.socket.recv_msg()
             self.assertEqual(msg, motor.Action(0, motor.POWER, 100))
-            server.socket.send(ident, ack.Acknowledgement())
+            server.socket.send_msg(ident, ack.Acknowledgement())
 
         with HedgehogClient(ctx, 'inproc://controller') as client:
             self.assertEqual(client.set_motor(0, motor.POWER, 100), None)
@@ -234,9 +233,9 @@ class TestHedgehogClientAPI(unittest.TestCase):
 
         @HedgehogServerDummy(self, ctx, 'inproc://controller')
         def thread(server):
-            ident, msg = server.socket.recv()
+            ident, msg = server.socket.recv_msg()
             self.assertEqual(msg, motor.Request(0))
-            server.socket.send(ident, motor.Update(0, 0, 0))
+            server.socket.send_msg(ident, motor.Update(0, 0, 0))
 
         with HedgehogClient(ctx, 'inproc://controller') as client:
             self.assertEqual(client.get_motor(0), (0, 0))
@@ -248,9 +247,9 @@ class TestHedgehogClientAPI(unittest.TestCase):
 
         @HedgehogServerDummy(self, ctx, 'inproc://controller')
         def thread(server):
-            ident, msg = server.socket.recv()
+            ident, msg = server.socket.recv_msg()
             self.assertEqual(msg, motor.SetPositionAction(0, 0))
-            server.socket.send(ident, ack.Acknowledgement())
+            server.socket.send_msg(ident, ack.Acknowledgement())
 
         with HedgehogClient(ctx, 'inproc://controller') as client:
             self.assertEqual(client.set_motor_position(0, 0), None)
@@ -262,9 +261,9 @@ class TestHedgehogClientAPI(unittest.TestCase):
 
         @HedgehogServerDummy(self, ctx, 'inproc://controller')
         def thread(server):
-            ident, msg = server.socket.recv()
+            ident, msg = server.socket.recv_msg()
             self.assertEqual(msg, servo.Action(0, False, 0))
-            server.socket.send(ident, ack.Acknowledgement())
+            server.socket.send_msg(ident, ack.Acknowledgement())
 
         with HedgehogClient(ctx, 'inproc://controller') as client:
             self.assertEqual(client.set_servo(0, False, 0), None)
@@ -276,13 +275,13 @@ class TestHedgehogClientAPI(unittest.TestCase):
 
         @HedgehogServerDummy(self, ctx, 'inproc://controller')
         def thread(server):
-            ident, msg = server.socket.recv()
+            ident, msg = server.socket.recv_msg()
             self.assertEqual(msg, process.ExecuteRequest('echo', 'asdf'))
-            server.socket.send(ident, process.ExecuteReply(2345))
-            server.socket.send(ident, process.StreamUpdate(2345, process.STDOUT, b'asdf\n'))
-            server.socket.send(ident, process.StreamUpdate(2345, process.STDOUT))
-            server.socket.send(ident, process.StreamUpdate(2345, process.STDERR))
-            server.socket.send(ident, process.ExitUpdate(2345, 0))
+            server.socket.send_msg(ident, process.ExecuteReply(2345))
+            server.socket.send_msg(ident, process.StreamUpdate(2345, process.STDOUT, b'asdf\n'))
+            server.socket.send_msg(ident, process.StreamUpdate(2345, process.STDOUT))
+            server.socket.send_msg(ident, process.StreamUpdate(2345, process.STDERR))
+            server.socket.send_msg(ident, process.ExitUpdate(2345, 0))
 
         with HedgehogClient(ctx, 'inproc://controller') as client:
             self.assertEqual(client.execute_process('echo', 'asdf'), 2345)
@@ -294,13 +293,13 @@ class TestHedgehogClientAPI(unittest.TestCase):
 
         @HedgehogServerDummy(self, ctx, 'inproc://controller')
         def thread(server):
-            ident, msg = server.socket.recv()
+            ident, msg = server.socket.recv_msg()
             self.assertEqual(msg, process.ExecuteRequest('echo', 'asdf'))
-            server.socket.send(ident, process.ExecuteReply(2345))
-            server.socket.send(ident, process.StreamUpdate(2345, process.STDOUT, b'asdf\n'))
-            server.socket.send(ident, process.StreamUpdate(2345, process.STDOUT))
-            server.socket.send(ident, process.StreamUpdate(2345, process.STDERR))
-            server.socket.send(ident, process.ExitUpdate(2345, 0))
+            server.socket.send_msg(ident, process.ExecuteReply(2345))
+            server.socket.send_msg(ident, process.StreamUpdate(2345, process.STDOUT, b'asdf\n'))
+            server.socket.send_msg(ident, process.StreamUpdate(2345, process.STDOUT))
+            server.socket.send_msg(ident, process.StreamUpdate(2345, process.STDERR))
+            server.socket.send_msg(ident, process.ExitUpdate(2345, 0))
 
         exit_a, exit_b = pipe(ctx)
 
@@ -321,13 +320,13 @@ class TestHedgehogClientAPI(unittest.TestCase):
 
         @HedgehogServerDummy(self, ctx, 'inproc://controller')
         def thread(server):
-            ident, msg = server.socket.recv()
+            ident, msg = server.socket.recv_msg()
             self.assertEqual(msg, process.ExecuteRequest('echo', 'asdf'))
-            server.socket.send(ident, process.ExecuteReply(2345))
-            server.socket.send(ident, process.StreamUpdate(2345, process.STDOUT, b'asdf\n'))
-            server.socket.send(ident, process.StreamUpdate(2345, process.STDOUT))
-            server.socket.send(ident, process.StreamUpdate(2345, process.STDERR))
-            server.socket.send(ident, process.ExitUpdate(2345, 0))
+            server.socket.send_msg(ident, process.ExecuteReply(2345))
+            server.socket.send_msg(ident, process.StreamUpdate(2345, process.STDOUT, b'asdf\n'))
+            server.socket.send_msg(ident, process.StreamUpdate(2345, process.STDOUT))
+            server.socket.send_msg(ident, process.StreamUpdate(2345, process.STDERR))
+            server.socket.send_msg(ident, process.ExitUpdate(2345, 0))
 
         exit_a, exit_b = pipe(ctx)
 
@@ -358,23 +357,23 @@ class TestHedgehogClientAPI(unittest.TestCase):
 
         @HedgehogServerDummy(self, ctx, 'inproc://controller')
         def thread(server):
-            ident, msg = server.socket.recv()
+            ident, msg = server.socket.recv_msg()
             self.assertEqual(msg, process.ExecuteRequest('cat'))
-            server.socket.send(ident, process.ExecuteReply(2345))
+            server.socket.send_msg(ident, process.ExecuteReply(2345))
 
-            ident, msg = server.socket.recv()
+            ident, msg = server.socket.recv_msg()
             self.assertEqual(msg, process.StreamAction(2345, process.STDIN, b'asdf\n'))
-            server.socket.send(ident, ack.Acknowledgement())
+            server.socket.send_msg(ident, ack.Acknowledgement())
 
-            server.socket.send(ident, process.StreamUpdate(2345, process.STDOUT, b'asdf\n'))
+            server.socket.send_msg(ident, process.StreamUpdate(2345, process.STDOUT, b'asdf\n'))
 
-            ident, msg = server.socket.recv()
+            ident, msg = server.socket.recv_msg()
             self.assertEqual(msg, process.StreamAction(2345, process.STDIN))
-            server.socket.send(ident, ack.Acknowledgement())
+            server.socket.send_msg(ident, ack.Acknowledgement())
 
-            server.socket.send(ident, process.StreamUpdate(2345, process.STDOUT))
-            server.socket.send(ident, process.StreamUpdate(2345, process.STDERR))
-            server.socket.send(ident, process.ExitUpdate(2345, 0))
+            server.socket.send_msg(ident, process.StreamUpdate(2345, process.STDOUT))
+            server.socket.send_msg(ident, process.StreamUpdate(2345, process.STDERR))
+            server.socket.send_msg(ident, process.ExitUpdate(2345, 0))
 
         with HedgehogClient(ctx, 'inproc://controller') as client:
             self.assertEqual(client.execute_process('cat'), 2345)
