@@ -1,4 +1,6 @@
+import zmq
 from queue import Queue
+
 from hedgehog.protocol.messages import Msg, ack, motor, process
 from hedgehog.utils import coroutine
 from hedgehog.utils.zmq.actor import CommandRegistry
@@ -165,6 +167,7 @@ class ProcessUpdateHandler(EventHandler):
 class ClientHandle(object):
     def __init__(self):
         self.queue = Queue()
+        self.socket = None
         self.daemon = False
 
     def push(self, obj):
@@ -173,6 +176,25 @@ class ClientHandle(object):
     def pop(self):
         # don't block, as we expect access synchronized via zmq sockets
         return self.queue.get(block=False)
+
+    def send_commands(self, *cmds):
+        self.push([handler for _, handler in cmds])
+        self.socket.send(b'COMMAND', zmq.SNDMORE)
+        self.socket.send_msgs([msg for msg, _ in cmds])
+        return self.socket.recv_msgs()
+
+    def close(self):
+        if not self.socket.closed:
+            self.socket.send_msg_raw(b'DISCONNECT')
+            self.socket.wait()
+            self.socket.close()
+
+    def shutdown(self):
+        self.socket.send_msg_raw(b'SHUTDOWN')
+        self.socket.wait()
+
+    def __del__(self):
+        self.close()
 
 
 class ClientRegistry(object):

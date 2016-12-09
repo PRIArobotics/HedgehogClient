@@ -137,9 +137,10 @@ class ClientBackend(object):
         socket.wait()
         self._pipe_frontend.wait()
         client_handle = self._pipe_frontend.pop()
+        client_handle.socket = socket
         client_handle.daemon = daemon
         self._pipe_frontend.signal()
-        return socket, client_handle
+        return client_handle
 
     def spawn(self, callback, *args, daemon=False, **kwargs):
         def target(*args, **kwargs):

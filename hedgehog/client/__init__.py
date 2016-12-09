@@ -34,10 +34,10 @@ class HedgehogClient(object):
 
     def __init(self, backend, daemon):
         self.backend = backend
-        self.socket, self.handle = backend._connect(daemon)
+        self.handle = backend._connect(daemon)
 
-    def _send(self, msg, handler=None):
-        reply = self._send_multipart((msg, handler))[0]
+    def send(self, msg, handler=None):
+        reply = self.send_multipart((msg, handler))[0]
         if isinstance(reply, ack.Acknowledgement):
             if reply.code != ack.OK:
                 raise errors.error(reply.code, reply.message)
@@ -45,34 +45,30 @@ class HedgehogClient(object):
         else:
             return reply
 
-    def _send_multipart(self, *cmds):
-        self.handle.push([handler for _, handler in cmds])
-        self.socket.send(b'COMMAND', zmq.SNDMORE)
-        self.socket.send_msgs([msg for msg, _ in cmds])
-        return self.socket.recv_msgs()
+    def send_multipart(self, *cmds):
+        return self.handle.send_commands(*cmds)
 
     def spawn(self, callback, *args, daemon=False, **kwargs):
         self.backend.spawn(callback, *args, daemon=daemon, **kwargs)
 
     def shutdown(self):
-        self.socket.send_msg_raw(b'SHUTDOWN')
-        self.socket.wait()
+        self.handle.shutdown()
 
     def set_input_state(self, port, pullup):
-        self._send(io.StateAction(port, io.INPUT_PULLUP if pullup else io.INPUT_FLOATING))
+        self.send(io.StateAction(port, io.INPUT_PULLUP if pullup else io.INPUT_FLOATING))
 
     def get_analog(self, port):
-        response = self._send(analog.Request(port))
+        response = self.send(analog.Request(port))
         assert response.port == port
         return response.value
 
     def get_digital(self, port):
-        response = self._send(digital.Request(port))
+        response = self.send(digital.Request(port))
         assert response.port == port
         return response.value
 
     def set_digital_output(self, port, level):
-        self._send(io.StateAction(port, io.OUTPUT_ON if level else io.OUTPUT_OFF))
+        self.send(io.StateAction(port, io.OUTPUT_ON if level else io.OUTPUT_OFF))
 
     def set_motor(self, port, state, amount=0, reached_state=motor.POWER, relative=None, absolute=None, on_reached=None):
         if on_reached is not None:
@@ -81,7 +77,7 @@ class HedgehogClient(object):
             handler = MotorUpdateHandler(on_reached)
         else:
             handler = None
-        self._send(motor.Action(port, state, amount, reached_state, relative, absolute), handler)
+        self.send(motor.Action(port, state, amount, reached_state, relative, absolute), handler)
 
     def move(self, port, amount, state=motor.POWER):
         self.set_motor(port, state, amount)
@@ -93,7 +89,7 @@ class HedgehogClient(object):
         self.set_motor(port, state, amount, absolute=absolute, on_reached=on_reached)
 
     def get_motor(self, port):
-        response = self._send(motor.Request(port))
+        response = self.send(motor.Request(port))
         assert response.port == port
         return response.velocity, response.position
 
@@ -106,33 +102,27 @@ class HedgehogClient(object):
         return position
 
     def set_motor_position(self, port, position):
-        self._send(motor.SetPositionAction(port, position))
+        self.send(motor.SetPositionAction(port, position))
 
     def set_servo(self, port, active, position):
-        self._send(servo.Action(port, active, position))
+        self.send(servo.Action(port, active, position))
 
     def execute_process(self, *args, working_dir=None, on_stdout=None, on_stderr=None, on_exit=None):
         if on_stdout is not None or on_stderr is not None or on_exit is not None:
             handler = ProcessUpdateHandler(on_stdout, on_stderr, on_exit)
         else:
             handler = None
-        response = self._send(process.ExecuteRequest(*args, working_dir=working_dir), handler)
+        response = self.send(process.ExecuteRequest(*args, working_dir=working_dir), handler)
         return response.pid
 
     def signal_process(self, pid, signal=2):
-        self._send(process.SignalAction(pid, signal))
+        self.send(process.SignalAction(pid, signal))
 
     def send_process_data(self, pid, chunk=b''):
-        self._send(process.StreamAction(pid, process.STDIN, chunk))
+        self.send(process.StreamAction(pid, process.STDIN, chunk))
 
     def close(self):
-        if not self.socket.closed:
-            self.socket.send_msg_raw(b'DISCONNECT')
-            self.socket.wait()
-            self.socket.close()
-
-    def __del__(self):
-        self.close()
+        self.handle.close()
 
 
 def find_server(ctx, service='hedgehog_server', accept=None):
