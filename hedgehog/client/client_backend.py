@@ -136,11 +136,11 @@ class ClientBackend(object):
         try:
             return self._local.client_handle
         except AttributeError:
-            client_handle = self._connect(False)
+            client_handle = self._connect()
             self._local.client_handle = client_handle
             return client_handle
 
-    def _connect(self, daemon):
+    def _connect(self):
         socket = ReqSocket(self.ctx, zmq.REQ)
         socket.connect(self.endpoint)
         socket.send_msg_raw(b'CONNECT')
@@ -148,13 +148,13 @@ class ClientBackend(object):
         self._pipe_frontend.wait()
         client_handle = self._pipe_frontend.pop()
         client_handle.socket = socket
-        client_handle.daemon = daemon
         self._pipe_frontend.signal()
         return client_handle
 
     def spawn(self, callback, *args, daemon=False, **kwargs):
         def target(*args, **kwargs):
             with self.client_handle:
+                self.client_handle.daemon = daemon
                 callback(*args, **kwargs)
 
         threading.Thread(target=target, args=args, kwargs=kwargs).start()
