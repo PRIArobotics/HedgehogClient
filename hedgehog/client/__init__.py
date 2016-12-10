@@ -34,7 +34,6 @@ class HedgehogClient(object):
 
     def __init(self, backend, daemon):
         self.backend = backend
-        self.handle = backend._connect(daemon)
 
     def send(self, msg, handler=None):
         reply = self.send_multipart((msg, handler))[0]
@@ -46,13 +45,13 @@ class HedgehogClient(object):
             return reply
 
     def send_multipart(self, *cmds):
-        return self.handle.send_commands(*cmds)
+        return self.backend.client_handle.send_commands(*cmds)
 
     def spawn(self, callback, *args, daemon=False, **kwargs):
         self.backend.spawn(callback, *args, daemon=daemon, **kwargs)
 
     def shutdown(self):
-        self.handle.shutdown()
+        self.backend.client_handle.shutdown()
 
     def set_input_state(self, port, pullup):
         self.send(io.StateAction(port, io.INPUT_PULLUP if pullup else io.INPUT_FLOATING))
@@ -122,7 +121,7 @@ class HedgehogClient(object):
         self.send(process.StreamAction(pid, process.STDIN, chunk))
 
     def close(self):
-        self.handle.close()
+        self.backend.client_handle.close()
 
 
 def find_server(ctx, service='hedgehog_server', accept=None):
@@ -204,24 +203,24 @@ def get_client(endpoint='tcp://127.0.0.1:10789', service='hedgehog_server', ctx=
 
 @contextmanager
 def connect(endpoint='tcp://127.0.0.1:10789', emergency=None, service='hedgehog_server', ctx=None):
-    # TODO a remote application's emergency_stop is remote, so it won't work in case of a disconnection!
-    def emergency_stop(client):
-        try:
-            client.set_input_state(emergency, True)
-            # while not client.get_digital(emergency):
-            while client.get_digital(emergency):
-                time.sleep(0.1)
-            client.shutdown()
-        except errors.FailedCommandError:
-            # the backend was shutdown; that means we don't need to do it, and that the program should terminate
-            # we do our part and let this thread terminate
-            pass
-
     # Force line buffering
     # TODO is there a cleaner way to do this than to reopen stdout, here?
     sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 1)
     sys.stderr = os.fdopen(sys.stderr.fileno(), 'w', 1)
     with get_client(endpoint, service, ctx) as client:
+        # TODO a remote application's emergency_stop is remote, so it won't work in case of a disconnection!
+        def emergency_stop():
+            try:
+                client.set_input_state(emergency, True)
+                # while not client.get_digital(emergency):
+                while client.get_digital(emergency):
+                    time.sleep(0.1)
+                client.shutdown()
+            except errors.FailedCommandError:
+                # the backend was shutdown; that means we don't need to do it, and that the program should terminate
+                # we do our part and let this thread terminate
+                pass
+
         if emergency is not None:
             client.spawn(emergency_stop, daemon=True)
         yield client

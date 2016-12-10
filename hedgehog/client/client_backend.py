@@ -44,6 +44,7 @@ class ClientBackend(object):
         self._pipe_backend, self._pipe_frontend = extended_pipe(ctx)
 
         self.registry = ClientRegistry()
+        self._local = threading.local()
 
         self.poller = Poller()
         self.register_frontend()
@@ -130,6 +131,15 @@ class ClientBackend(object):
 
         self.poller.register(self.backend, zmq.POLLIN, handle)
 
+    @property
+    def client_handle(self):
+        try:
+            return self._local.client_handle
+        except AttributeError:
+            client_handle = self._connect(False)
+            self._local.client_handle = client_handle
+            return client_handle
+
     def _connect(self, daemon):
         socket = ReqSocket(self.ctx, zmq.REQ)
         socket.connect(self.endpoint)
@@ -144,9 +154,8 @@ class ClientBackend(object):
 
     def spawn(self, callback, *args, daemon=False, **kwargs):
         def target(*args, **kwargs):
-            from . import HedgehogClient
-            with HedgehogClient._backend_new(self, daemon) as client:
-                callback(client, *args, **kwargs)
+            with self.client_handle:
+                callback(*args, **kwargs)
 
         threading.Thread(target=target, args=args, kwargs=kwargs).start()
 

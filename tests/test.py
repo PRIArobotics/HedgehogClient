@@ -68,6 +68,20 @@ class TestHedgehogClient(unittest.TestCase):
 
         thread.join()
 
+    def test_single_client_thread(self):
+        ctx = zmq.Context()
+
+        @HedgehogServerDummy(self, ctx, 'inproc://controller')
+        def thread(server):
+            ident, msg = server.socket.recv_msg()
+            self.assertEqual(msg, analog.Request(0))
+            server.socket.send_msg(ident, analog.Update(0, 0))
+
+        with HedgehogClient(ctx, 'inproc://controller') as client:
+            self.assertEqual(client.get_analog(0), 0)
+
+        thread.join()
+
     def test_multiple_client_threads(self):
         ctx = zmq.Context()
 
@@ -82,14 +96,15 @@ class TestHedgehogClient(unittest.TestCase):
             server.socket.send_msg(ident2, analog.Update(0, 0))
 
             self.assertEqual(ident1[0], ident2[0])
+            self.assertNotEqual(ident1[1], ident2[1])
 
-        with HedgehogClient(ctx, 'inproc://controller') as client1:
-            self.assertEqual(client1.get_analog(0), 0)
+        with HedgehogClient(ctx, 'inproc://controller') as client:
+            self.assertEqual(client.get_analog(0), 0)
 
-            def spawned(client2):
-                self.assertEqual(client2.get_analog(0), 0)
+            def spawned():
+                self.assertEqual(client.get_analog(0), 0)
 
-            client1.spawn(spawned)
+            client.spawn(spawned)
 
         thread.join()
 
