@@ -6,7 +6,7 @@ import zmq
 from hedgehog.protocol.messages import motor, servo
 from hedgehog.protocol.messages.ack import Acknowledgement, FAILED_COMMAND
 from hedgehog.protocol.sockets import ReqSocket, DealerRouterSocket
-from hedgehog.utils.zmq.pipe import extended_pipe
+from hedgehog.utils.zmq.pipe import pipe, extended_pipe
 from hedgehog.utils.zmq.poller import Poller
 from .client_registry import ClientRegistry
 
@@ -152,12 +152,18 @@ class ClientBackend(object):
         return client_handle
 
     def spawn(self, callback, *args, daemon=False, **kwargs):
+        a, b = pipe(self.ctx)
+
         def target(*args, **kwargs):
             with self.client_handle:
+                a.signal()
+                a.close()
                 self.client_handle.daemon = daemon
                 callback(*args, **kwargs)
 
         threading.Thread(target=target, args=args, kwargs=kwargs).start()
+        b.wait()
+        b.close()
 
     def run(self):
         while len(self.poller.sockets) > 0:
