@@ -17,8 +17,7 @@ logger = logging.getLogger(__name__)
 
 class HedgehogClient(object):
     def __init__(self, ctx, endpoint='tcp://127.0.0.1:10789'):
-        backend = ClientBackend(ctx, endpoint)
-        self.__init(backend, False)
+        self.backend = ClientBackend(ctx, endpoint)
 
     def __enter__(self):
         return self
@@ -26,17 +25,11 @@ class HedgehogClient(object):
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
 
-    @classmethod
-    def _backend_new(cls, backend, daemon):
-        self = cls.__new__(cls)
-        self.__init(backend, daemon)
-        return self
-
-    def __init(self, backend, daemon):
-        self.backend = backend
+    def close(self):
+        self.backend.client_handle.close()
 
     def send(self, msg, handler=None):
-        reply = self.send_multipart((msg, handler))[0]
+        reply, = self.send_multipart((msg, handler))
         if isinstance(reply, ack.Acknowledgement):
             if reply.code != ack.OK:
                 raise errors.error(reply.code, reply.message)
@@ -119,9 +112,6 @@ class HedgehogClient(object):
 
     def send_process_data(self, pid, chunk=b''):
         self.send(process.StreamAction(pid, process.STDIN, chunk))
-
-    def close(self):
-        self.backend.client_handle.close()
 
 
 def find_server(ctx, service='hedgehog_server', accept=None):

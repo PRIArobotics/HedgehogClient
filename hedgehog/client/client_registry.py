@@ -170,6 +170,21 @@ class ClientHandle(object):
         self.socket = None
         self.daemon = False
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+
+    def __del__(self):
+        self.close()
+
+    def close(self):
+        if not self.socket.closed:
+            self.socket.send_msg_raw(b'DISCONNECT')
+            self.socket.wait()
+            self.socket.close()
+
     def push(self, obj):
         self.queue.put(obj)
 
@@ -183,24 +198,9 @@ class ClientHandle(object):
         self.socket.send_msgs([msg for msg, _ in cmds])
         return self.socket.recv_msgs()
 
-    def close(self):
-        if not self.socket.closed:
-            self.socket.send_msg_raw(b'DISCONNECT')
-            self.socket.wait()
-            self.socket.close()
-
     def shutdown(self):
         self.socket.send_msg_raw(b'SHUTDOWN')
         self.socket.wait()
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.close()
-
-    def __del__(self):
-        self.close()
 
 
 class ClientRegistry(object):
