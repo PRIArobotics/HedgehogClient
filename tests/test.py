@@ -327,23 +327,30 @@ class TestHedgehogClientAPI(unittest.TestCase):
 
         @HedgehogServerDummy(self, ctx, 'inproc://controller')
         def thread(server):
-            ident, msg = server.socket.recv_msg()
-            self.assertEqual(msg, process.ExecuteRequest('echo', 'asdf'))
-            server.socket.send_msg(ident, process.ExecuteReply(2345))
-            server.socket.send_msg(ident, process.StreamUpdate(2345, process.STDOUT, b'asdf\n'))
-            server.socket.send_msg(ident, process.StreamUpdate(2345, process.STDOUT))
-            server.socket.send_msg(ident, process.StreamUpdate(2345, process.STDERR))
-            server.socket.send_msg(ident, process.ExitUpdate(2345, 0))
+            for i in range(2):
+                ident, msg = server.socket.recv_msg()
+                self.assertEqual(msg, process.ExecuteRequest('echo', 'asdf'))
+                server.socket.send_msg(ident, process.ExecuteReply(2345))
+                server.socket.send_msg(ident, process.StreamUpdate(2345, process.STDOUT, b'asdf\n'))
+                server.socket.send_msg(ident, process.StreamUpdate(2345, process.STDOUT))
+                server.socket.send_msg(ident, process.StreamUpdate(2345, process.STDERR))
+                server.socket.send_msg(ident, process.ExitUpdate(2345, 0))
 
         exit_a, exit_b = pipe(ctx)
 
         with HedgehogClient(ctx, 'inproc://controller') as client:
-            def on_exit(pid, exit_code):
+            @coroutine
+            def on_exit():
+                pid, exit_code = yield
                 self.assertEqual(pid, 2345)
                 self.assertEqual(exit_code, 0)
                 exit_b.signal()
+                yield
 
-            self.assertEqual(client.execute_process('echo', 'asdf', on_exit=on_exit), 2345)
+            self.assertEqual(client.execute_process('echo', 'asdf', on_exit=on_exit()), 2345)
+
+            proc = client.process('echo', 'asdf', on_exit=on_exit())
+            self.assertEqual(proc.pid, 2345)
 
         exit_a.wait()
 
@@ -354,25 +361,26 @@ class TestHedgehogClientAPI(unittest.TestCase):
 
         @HedgehogServerDummy(self, ctx, 'inproc://controller')
         def thread(server):
-            ident, msg = server.socket.recv_msg()
-            self.assertEqual(msg, process.ExecuteRequest('echo', 'asdf'))
-            server.socket.send_msg(ident, process.ExecuteReply(2345))
-            server.socket.send_msg(ident, process.StreamUpdate(2345, process.STDOUT, b'asdf\n'))
-            server.socket.send_msg(ident, process.StreamUpdate(2345, process.STDOUT))
-            server.socket.send_msg(ident, process.StreamUpdate(2345, process.STDERR))
-            server.socket.send_msg(ident, process.ExitUpdate(2345, 0))
+            for i in range(2):
+                ident, msg = server.socket.recv_msg()
+                self.assertEqual(msg, process.ExecuteRequest('echo', 'asdf'))
+                server.socket.send_msg(ident, process.ExecuteReply(2345))
+                server.socket.send_msg(ident, process.StreamUpdate(2345, process.STDOUT, b'asdf\n'))
+                server.socket.send_msg(ident, process.StreamUpdate(2345, process.STDOUT))
+                server.socket.send_msg(ident, process.StreamUpdate(2345, process.STDERR))
+                server.socket.send_msg(ident, process.ExitUpdate(2345, 0))
 
         exit_a, exit_b = pipe(ctx)
 
         with HedgehogClient(ctx, 'inproc://controller') as client:
             @coroutine
             def on_stdout():
-                client, pid, fileno, chunk = yield
+                pid, fileno, chunk = yield
                 self.assertEqual(pid, 2345)
                 self.assertEqual(fileno, process.STDOUT)
                 self.assertEqual(chunk, b'asdf\n')
 
-                client, pid, fileno, chunk = yield
+                pid, fileno, chunk = yield
                 self.assertEqual(pid, 2345)
                 self.assertEqual(fileno, process.STDOUT)
                 self.assertEqual(chunk, b'')
@@ -381,6 +389,9 @@ class TestHedgehogClientAPI(unittest.TestCase):
                 yield
 
             self.assertEqual(client.execute_process('echo', 'asdf', on_stdout=on_stdout()), 2345)
+
+            proc = client.process('echo', 'asdf', on_stdout=on_stdout())
+            self.assertEqual(proc.pid, 2345)
 
         exit_a.wait()
 
@@ -391,29 +402,35 @@ class TestHedgehogClientAPI(unittest.TestCase):
 
         @HedgehogServerDummy(self, ctx, 'inproc://controller')
         def thread(server):
-            ident, msg = server.socket.recv_msg()
-            self.assertEqual(msg, process.ExecuteRequest('cat'))
-            server.socket.send_msg(ident, process.ExecuteReply(2345))
+            for i in range(2):
+                ident, msg = server.socket.recv_msg()
+                self.assertEqual(msg, process.ExecuteRequest('cat'))
+                server.socket.send_msg(ident, process.ExecuteReply(2345))
 
-            ident, msg = server.socket.recv_msg()
-            self.assertEqual(msg, process.StreamAction(2345, process.STDIN, b'asdf\n'))
-            server.socket.send_msg(ident, ack.Acknowledgement())
+                ident, msg = server.socket.recv_msg()
+                self.assertEqual(msg, process.StreamAction(2345, process.STDIN, b'asdf\n'))
+                server.socket.send_msg(ident, ack.Acknowledgement())
 
-            server.socket.send_msg(ident, process.StreamUpdate(2345, process.STDOUT, b'asdf\n'))
+                server.socket.send_msg(ident, process.StreamUpdate(2345, process.STDOUT, b'asdf\n'))
 
-            ident, msg = server.socket.recv_msg()
-            self.assertEqual(msg, process.StreamAction(2345, process.STDIN))
-            server.socket.send_msg(ident, ack.Acknowledgement())
+                ident, msg = server.socket.recv_msg()
+                self.assertEqual(msg, process.StreamAction(2345, process.STDIN))
+                server.socket.send_msg(ident, ack.Acknowledgement())
 
-            server.socket.send_msg(ident, process.StreamUpdate(2345, process.STDOUT))
-            server.socket.send_msg(ident, process.StreamUpdate(2345, process.STDERR))
-            server.socket.send_msg(ident, process.ExitUpdate(2345, 0))
+                server.socket.send_msg(ident, process.StreamUpdate(2345, process.STDOUT))
+                server.socket.send_msg(ident, process.StreamUpdate(2345, process.STDERR))
+                server.socket.send_msg(ident, process.ExitUpdate(2345, 0))
 
         with HedgehogClient(ctx, 'inproc://controller') as client:
             self.assertEqual(client.execute_process('cat'), 2345)
             self.assertEqual(client.send_process_data(2345, b'asdf\n'), None)
             self.assertEqual(client.send_process_data(2345), None)
 
+            proc = client.process('cat')
+            self.assertEqual(proc.pid, 2345)
+            self.assertEqual(proc.send_data(b'asdf\n'), None)
+            self.assertEqual(proc.send_data(), None)
+        
         thread.join()
 
 
