@@ -169,8 +169,8 @@ class ClientBackend(object):
 
         def target(*args, **kwargs):
             with self.client_handle:
-                signal()
                 self.client_handle.daemon = daemon
+                signal()
                 callback(*args, **kwargs)
 
         threading.Thread(target=target, args=args, kwargs=kwargs).start()
