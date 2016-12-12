@@ -151,19 +151,30 @@ class ClientBackend(object):
         self._pipe_frontend.signal()
         return client_handle
 
-    def spawn(self, callback, *args, daemon=False, **kwargs):
-        a, b = pipe(self.ctx)
+    def spawn(self, callback, *args, daemon=False, async=False, **kwargs):
+        if async:
+            def signal(): pass
+
+            def wait(): pass
+        else:
+            a, b = pipe(self.ctx)
+
+            def signal():
+                a.signal()
+                a.close()
+
+            def wait():
+                b.wait()
+                b.close()
 
         def target(*args, **kwargs):
             with self.client_handle:
-                a.signal()
-                a.close()
+                signal()
                 self.client_handle.daemon = daemon
                 callback(*args, **kwargs)
 
         threading.Thread(target=target, args=args, kwargs=kwargs).start()
-        b.wait()
-        b.close()
+        wait()
 
     def run(self):
         while len(self.poller.sockets) > 0:

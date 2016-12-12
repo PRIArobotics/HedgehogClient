@@ -338,7 +338,7 @@ class TestHedgehogClientAPI(unittest.TestCase):
         exit_a, exit_b = pipe(ctx)
 
         with HedgehogClient(ctx, 'inproc://controller') as client:
-            def on_exit(client, pid, exit_code):
+            def on_exit(pid, exit_code):
                 self.assertEqual(pid, 2345)
                 self.assertEqual(exit_code, 0)
                 exit_b.signal()

@@ -24,14 +24,14 @@ class _EventHandler(object):
         self.pipe, self._pipe = pipe(backend.ctx)
         self.handler = handler
 
-    def run(self, client):
+    def run(self):
         registry = CommandRegistry()
         running = True
 
         @registry.command(b'UPDATE')
         def handle_update(update_raw):
             update = Msg.parse(update_raw)
-            self.handler(client, update)
+            self.handler(update)
 
         @registry.command(b'$TERM')
         def handle_term():
@@ -80,8 +80,8 @@ class MotorUpdateHandler(EventHandler):
 
         @coroutine
         def handle_motor_state_update():
-            client, update = yield
-            self.on_reached(client, self.port, update.state)
+            update, = yield
+            self.on_reached(self.port, update.state)
             self.handler.shutdown()
             yield
 
@@ -115,17 +115,17 @@ class ProcessUpdateHandler(EventHandler):
         @coroutine
         def handle_stdout_exit():
             while True:
-                client, update = yield
+                update, = yield
                 if self.on_stdout is not None:
-                    self.on_stdout(client, self.pid, update.fileno, update.chunk)
+                    self.on_stdout(self.pid, update.fileno, update.chunk)
                 if update.chunk == b'':
                     break
 
-            client, update = yield
+            update, = yield
 
             exit_a.wait()
             if self.on_exit is not None:
-                self.on_exit(client, self.pid, update.exit_code)
+                self.on_exit(self.pid, update.exit_code)
 
             self.stdout_handler.shutdown()
             yield
@@ -133,9 +133,9 @@ class ProcessUpdateHandler(EventHandler):
         @coroutine
         def handle_stderr():
             while True:
-                client, update = yield
+                update, = yield
                 if self.on_stderr is not None:
-                    self.on_stderr(client, self.pid, update.fileno, update.chunk)
+                    self.on_stderr(self.pid, update.fileno, update.chunk)
                 if update.chunk == b'':
                     break
 
@@ -145,8 +145,8 @@ class ProcessUpdateHandler(EventHandler):
 
         self.stdout_handler = _EventHandler(backend, handle_stdout_exit())
         self.stderr_handler = _EventHandler(backend, handle_stderr())
-        backend.spawn(self.stdout_handler.run)
-        backend.spawn(self.stderr_handler.run)
+        backend.spawn(self.stdout_handler.run, async=True)
+        backend.spawn(self.stderr_handler.run, async=True)
 
     def update(self, update):
         if isinstance(update, process.StreamUpdate):
