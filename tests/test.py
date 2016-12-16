@@ -4,6 +4,7 @@ import unittest
 
 import zmq
 from hedgehog.client import HedgehogClient, find_server, get_client, connect
+from hedgehog.client.components import HedgehogComponentGetterMixin
 from hedgehog.protocol import errors
 from hedgehog.protocol.messages import ack, analog, digital, io, motor, servo, process
 from hedgehog.protocol.sockets import DealerRouterSocket
@@ -184,6 +185,8 @@ class command(object):
 
 
 class HedgehogAPITestCase(unittest.TestCase):
+    client_class = HedgehogClient
+
     def run_test(self, *requests):
         ctx = zmq.Context()
 
@@ -192,7 +195,7 @@ class HedgehogAPITestCase(unittest.TestCase):
             for _, respond in requests:
                 respond(server)
 
-        with HedgehogClient(ctx, 'inproc://controller') as client:
+        with self.client_class(ctx, 'inproc://controller') as client:
             for request, _ in requests:
                 request(client)
 
@@ -392,7 +395,12 @@ class TestHedgehogClientProcessAPI(HedgehogAPITestCase):
         )
 
 
-class TestHedgehogClientOOAPI(HedgehogAPITestCase):
+class TestComponentGetterAPI(HedgehogAPITestCase):
+    class HedgehogComponentGetterClient(HedgehogComponentGetterMixin, HedgehogClient):
+        pass
+
+    client_class = HedgehogComponentGetterClient
+
     @HedgehogAPITestCase.io_state_action.request
     def analog_set_state(self, client, port, pullup):
         self.assertEqual(client.analog(port).set_state(pullup), None)
@@ -451,7 +459,12 @@ class TestHedgehogClientOOAPI(HedgehogAPITestCase):
         )
 
 
-class TestHedgehogClientOOProcessAPI(HedgehogAPITestCase):
+class TestComponentGetterProcessAPI(HedgehogAPITestCase):
+    class HedgehogComponentGetterClient(HedgehogComponentGetterMixin, HedgehogClient):
+        pass
+
+    client_class = HedgehogComponentGetterClient
+
     @HedgehogAPITestCase.execute_process_echo_asdf.request
     def execute_process_handle_nothing(self, client, pid):
         self.assertEqual(client.process('echo', 'asdf').pid, pid)

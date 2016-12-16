@@ -9,7 +9,6 @@ from hedgehog.utils.zmq.poller import Poller
 from hedgehog.utils.discovery.service_node import ServiceNode
 from hedgehog.protocol import errors
 from hedgehog.protocol.messages import ack, io, analog, digital, motor, servo, process
-from .components import AnalogSensor, DigitalSensor, DigitalOutput, Motor, Servo, Process
 from .client_backend import ClientBackend
 from .client_registry import MotorUpdateHandler, ProcessUpdateHandler
 
@@ -114,24 +113,6 @@ class HedgehogClient(object):
     def send_process_data(self, pid, chunk=b''):
         self.send(process.StreamAction(pid, process.STDIN, chunk))
 
-    def analog(self, port):
-        return AnalogSensor(self, port)
-
-    def digital(self, port):
-        return DigitalSensor(self, port)
-
-    def output(self, port):
-        return DigitalOutput(self, port)
-
-    def motor(self, port):
-        return Motor(self, port)
-
-    def servo(self, port):
-        return Servo(self, port)
-
-    def process(self, *args, **kwargs):
-        return Process(self, self.execute_process(*args, **kwargs))
-
 
 def find_server(ctx, service='hedgehog_server', accept=None):
     if accept is None:
@@ -198,7 +179,8 @@ def find_server(ctx, service='hedgehog_server', accept=None):
         return server
 
 
-def get_client(endpoint='tcp://127.0.0.1:10789', service='hedgehog_server', ctx=None):
+def get_client(endpoint='tcp://127.0.0.1:10789', service='hedgehog_server',
+               ctx=None, client_class=HedgehogClient):
     ctx = ctx or zmq.Context()
 
     if endpoint is None:
@@ -208,17 +190,18 @@ def get_client(endpoint='tcp://127.0.0.1:10789', service='hedgehog_server', ctx=
         endpoint = list(server.services[service])[0]
         logger.debug("Chose this endpoint via discovery: {}".format(endpoint))
 
-    return HedgehogClient(ctx, endpoint)
+    return client_class(ctx, endpoint)
 
 
 @contextmanager
-def connect(endpoint='tcp://127.0.0.1:10789', emergency=None, service='hedgehog_server', ctx=None):
+def connect(endpoint='tcp://127.0.0.1:10789', emergency=None, service='hedgehog_server',
+            ctx=None, client_class=HedgehogClient):
     # Force line buffering
     # TODO is there a cleaner way to do this than to reopen stdout, here?
     # FIXME this only works once per process, so it needs to be removed when running tests
     sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 1)
     sys.stderr = os.fdopen(sys.stderr.fileno(), 'w', 1)
-    with get_client(endpoint, service, ctx) as client:
+    with get_client(endpoint, service, ctx, client_class) as client:
         # TODO a remote application's emergency_stop is remote, so it won't work in case of a disconnection!
         def emergency_stop():
             try:

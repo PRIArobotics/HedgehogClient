@@ -73,3 +73,23 @@ class Process(Component):
 
     def send_data(self, chunk=b''):
         self.hedgehog.send_process_data(self.pid, chunk)
+
+
+class HedgehogComponentGetterMixin(object):
+    def analog(self, port):
+        return AnalogSensor(self, port)
+
+    def digital(self, port):
+        return DigitalSensor(self, port)
+
+    def output(self, port):
+        return DigitalOutput(self, port)
+
+    def motor(self, port):
+        return Motor(self, port)
+
+    def servo(self, port):
+        return Servo(self, port)
+
+    def process(self, *args, **kwargs):
+        return Process(self, self.execute_process(*args, **kwargs))
