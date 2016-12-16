@@ -210,10 +210,12 @@ def get_client(endpoint='tcp://127.0.0.1:10789', service='hedgehog_server', ctx=
 
     return HedgehogClient(ctx, endpoint)
 
+
 @contextmanager
 def connect(endpoint='tcp://127.0.0.1:10789', emergency=None, service='hedgehog_server', ctx=None):
     # Force line buffering
     # TODO is there a cleaner way to do this than to reopen stdout, here?
+    # FIXME this only works once per process, so it needs to be removed when running tests
     sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 1)
     sys.stderr = os.fdopen(sys.stderr.fileno(), 'w', 1)
     with get_client(endpoint, service, ctx) as client:
