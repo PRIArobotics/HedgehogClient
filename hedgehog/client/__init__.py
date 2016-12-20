@@ -3,7 +3,7 @@ import os
 import sys
 import time
 import zmq
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from hedgehog.utils.zmq.actor import CommandRegistry
 from hedgehog.utils.zmq.poller import Poller
 from hedgehog.utils.discovery.service_node import ServiceNode
@@ -169,13 +169,14 @@ def find_server(ctx, service='hedgehog_server', accept=None):
         node.request_service(service)
         server = None
 
-        while len(poller.sockets) > 0:
-            items = poller.poll(1000)
-            if len(items) > 0:
-                for _, _, handler in items:
-                    server = handler()
-            else:
-                node.request_service(service)
+        with suppress(KeyboardInterrupt):
+            while len(poller.sockets) > 0:
+                items = poller.poll(1000)
+                if len(items) > 0:
+                    for _, _, handler in items:
+                        server = handler()
+                else:
+                    node.request_service(service)
         return server
 
 
