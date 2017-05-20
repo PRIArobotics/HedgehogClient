@@ -169,6 +169,7 @@ class ClientHandle(object):
         self.queue = Queue()
         self.socket = None
         self.daemon = False
+        self._shutdown_scheduled = False
 
     def __enter__(self):
         return self
@@ -193,10 +194,17 @@ class ClientHandle(object):
         return self.queue.get(block=False)
 
     def send_commands(self, *cmds):
+        if self._shutdown_scheduled:
+            self.shutdown()
+            self._shutdown_scheduled = False
+
         self.push([handler for _, handler in cmds])
         self.socket.send(b'COMMAND', zmq.SNDMORE)
         self.socket.send_msgs([msg for msg, _ in cmds])
         return self.socket.recv_msgs()
+
+    def schedule_shutdown(self):
+        self._shutdown_scheduled = True
 
     def shutdown(self):
         self.socket.send_msg_raw(b'SHUTDOWN')

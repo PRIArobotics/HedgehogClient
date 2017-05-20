@@ -1,5 +1,6 @@
 import logging
 import os
+import signal
 import sys
 import time
 import zmq
@@ -42,6 +43,9 @@ class HedgehogClient(object):
 
     def spawn(self, callback, *args, daemon=False, **kwargs):
         self.backend.spawn(callback, *args, daemon=daemon, **kwargs)
+
+    def schedule_shutdown(self):
+        self.backend.client_handle.schedule_shutdown()
 
     def shutdown(self):
         self.backend.client_handle.shutdown()
@@ -202,7 +206,13 @@ def connect(endpoint='tcp://127.0.0.1:10789', emergency=None, service='hedgehog_
     # FIXME this only works once per process, so it needs to be removed when running tests
     sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 1)
     sys.stderr = os.fdopen(sys.stderr.fileno(), 'w', 1)
+
     with get_client(endpoint, service, ctx, client_class) as client:
+        # FIXME this only works once per process
+        def sigint_handler(signal, frame):
+            client.schedule_shutdown()
+        signal.signal(signal.SIGINT, sigint_handler)
+
         # TODO a remote application's emergency_stop is remote, so it won't work in case of a disconnection!
         def emergency_stop():
             try:
