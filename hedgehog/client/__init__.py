@@ -211,11 +211,15 @@ def connect(endpoint='tcp://127.0.0.1:10789', emergency=None, service='hedgehog_
                 while client.get_digital(emergency):
                     time.sleep(0.1)
                 client.shutdown()
-            except errors.FailedCommandError:
+            except errors.EmergencyShutdown:
                 # the backend was shutdown; that means we don't need to do it, and that the program should terminate
                 # we do our part and let this thread terminate
                 pass
 
         if emergency is not None:
             client.spawn(emergency_stop, daemon=True)
-        yield client
+
+        try:
+            yield client
+        except errors.EmergencyShutdown as ex:
+            print(ex)
