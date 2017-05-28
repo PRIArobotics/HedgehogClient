@@ -5,7 +5,7 @@ import unittest
 import zmq
 from hedgehog.client import HedgehogClient, find_server, get_client, connect
 from hedgehog.client.components import HedgehogComponentGetterMixin
-from hedgehog.protocol import errors
+from hedgehog.protocol import errors, ServerSide
 from hedgehog.protocol.messages import ack, analog, digital, io, motor, servo, process
 from hedgehog.protocol.sockets import DealerRouterSocket
 from hedgehog.server import handlers, HedgehogServer
@@ -24,7 +24,7 @@ def handler():
 
 class HedgehogServerDummy(object):
     def __init__(self, testcase, ctx, endpoint):
-        self.socket = DealerRouterSocket(ctx, zmq.ROUTER)
+        self.socket = DealerRouterSocket(ctx, zmq.ROUTER, side=ServerSide)
         self.socket.bind(endpoint)
         self.testcase = testcase
 
@@ -76,7 +76,7 @@ class TestHedgehogClient(unittest.TestCase):
         def thread(server):
             ident, msg = server.socket.recv_msg()
             self.assertEqual(msg, analog.Request(0))
-            server.socket.send_msg(ident, analog.Update(0, 0))
+            server.socket.send_msg(ident, analog.Reply(0, 0))
 
         with HedgehogClient(ctx, 'inproc://controller') as client:
             self.assertEqual(client.get_analog(0), 0)
@@ -90,11 +90,11 @@ class TestHedgehogClient(unittest.TestCase):
         def thread(server):
             ident1, msg = server.socket.recv_msg()
             self.assertEqual(msg, analog.Request(0))
-            server.socket.send_msg(ident1, analog.Update(0, 0))
+            server.socket.send_msg(ident1, analog.Reply(0, 0))
 
             ident2, msg = server.socket.recv_msg()
             self.assertEqual(msg, analog.Request(0))
-            server.socket.send_msg(ident2, analog.Update(0, 0))
+            server.socket.send_msg(ident2, analog.Reply(0, 0))
 
             self.assertEqual(ident1[0], ident2[0])
             self.assertNotEqual(ident1[1], ident2[1])
@@ -211,13 +211,13 @@ class HedgehogAPITestCase(unittest.TestCase):
     def analog_request(self, server, port, value):
         ident, msg = server.socket.recv_msg()
         self.assertEqual(msg, analog.Request(port))
-        server.socket.send_msg(ident, analog.Update(port, value))
+        server.socket.send_msg(ident, analog.Reply(port, value))
 
     @command
     def digital_request(self, server, port, value):
         ident, msg = server.socket.recv_msg()
         self.assertEqual(msg, digital.Request(port))
-        server.socket.send_msg(ident, digital.Update(port, value))
+        server.socket.send_msg(ident, digital.Reply(port, value))
 
     @command
     def io_state_action_output(self, server, port, level):
@@ -234,8 +234,8 @@ class HedgehogAPITestCase(unittest.TestCase):
     @command
     def motor_request(self, server, port, velocity, position):
         ident, msg = server.socket.recv_msg()
-        self.assertEqual(msg, motor.Request(port))
-        server.socket.send_msg(ident, motor.Update(port, velocity, position))
+        self.assertEqual(msg, motor.StateRequest(port))
+        server.socket.send_msg(ident, motor.StateReply(port, velocity, position))
 
     @command
     def motor_set_position_action(self, server, port, position):
@@ -252,7 +252,7 @@ class HedgehogAPITestCase(unittest.TestCase):
     @command
     def execute_process_echo_asdf(self, server, pid):
         ident, msg = server.socket.recv_msg()
-        self.assertEqual(msg, process.ExecuteRequest('echo', 'asdf'))
+        self.assertEqual(msg, process.ExecuteAction('echo', 'asdf'))
         server.socket.send_msg(ident, process.ExecuteReply(pid))
         server.socket.send_msg(ident, process.StreamUpdate(pid, process.STDOUT, b'asdf\n'))
         server.socket.send_msg(ident, process.StreamUpdate(pid, process.STDOUT))
@@ -262,7 +262,7 @@ class HedgehogAPITestCase(unittest.TestCase):
     @command
     def execute_process_cat(self, server, pid):
         ident, msg = server.socket.recv_msg()
-        self.assertEqual(msg, process.ExecuteRequest('cat'))
+        self.assertEqual(msg, process.ExecuteAction('cat'))
         server.socket.send_msg(ident, process.ExecuteReply(pid))
 
         while True:
@@ -524,6 +524,7 @@ class TestComponentGetterProcessAPI(HedgehogAPITestCase):
             self.execute_process_handle_stream(2345),
             self.execute_process_handle_input(2345),
         )
+
 
 if __name__ == '__main__':
     unittest.main()

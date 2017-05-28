@@ -85,7 +85,7 @@ class HedgehogClient(object):
         self.set_motor(port, state, amount, absolute=absolute, on_reached=on_reached)
 
     def get_motor(self, port):
-        response = self.send(motor.Request(port))
+        response = self.send(motor.StateRequest(port))
         assert response.port == port
         return response.velocity, response.position
 
@@ -108,7 +108,7 @@ class HedgehogClient(object):
             handler = ProcessUpdateHandler(on_stdout, on_stderr, on_exit)
         else:
             handler = None
-        response = self.send(process.ExecuteRequest(*args, working_dir=working_dir), handler)
+        response = self.send(process.ExecuteAction(*args, working_dir=working_dir), handler)
         return response.pid
 
     def signal_process(self, pid, signal=2):

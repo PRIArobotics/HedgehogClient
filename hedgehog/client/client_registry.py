@@ -1,14 +1,14 @@
 import zmq
 from queue import Queue
 
-from hedgehog.protocol.messages import Msg, ack, motor, process
+from hedgehog.protocol.messages import ReplyMsg, ack, motor, process
 from hedgehog.utils import coroutine
 from hedgehog.utils.zmq.actor import CommandRegistry
 from hedgehog.utils.zmq.pipe import pipe
 
 
 _update_keys = {
-    motor.StateUpdate: lambda update: update.port,
+    # motor.StateUpdate: lambda update: update.port,
     process.StreamUpdate: lambda update: update.pid,
     process.ExitUpdate: lambda update: update.pid,
 }
@@ -30,7 +30,7 @@ class _EventHandler(object):
 
         @registry.command(b'UPDATE')
         def handle_update(update_raw):
-            update = Msg.parse(update_raw)
+            update = ReplyMsg.parse(update_raw)
             self.handler(update)
 
         @registry.command(b'$TERM')
@@ -42,7 +42,7 @@ class _EventHandler(object):
             registry.handle(self._pipe.recv_multipart())
 
     def update(self, update):
-        self.pipe.send_multipart([b'UPDATE', Msg.serialize(update)])
+        self.pipe.send_multipart([b'UPDATE', ReplyMsg.serialize(update)])
 
     def shutdown(self):
         self.pipe.send(b'$TERM')

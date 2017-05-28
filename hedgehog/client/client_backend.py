@@ -3,6 +3,7 @@ import random
 import threading
 import zmq
 
+from hedgehog.protocol import ClientSide, ServerSide
 from hedgehog.protocol.messages import motor, servo
 from hedgehog.protocol.messages.ack import Acknowledgement, FAILED_COMMAND
 from hedgehog.protocol.sockets import ReqSocket, DealerRouterSocket
@@ -17,7 +18,7 @@ class ClientBackend(object):
     def __init__(self, ctx, endpoint):
         self.ctx = ctx
 
-        self.frontend = DealerRouterSocket(ctx, zmq.ROUTER).configure(hwm=1000)
+        self.frontend = DealerRouterSocket(ctx, zmq.ROUTER, side=ServerSide).configure(hwm=1000)
         while True:
             self.endpoint = "inproc://frontend-%04x-%04x" % (random.randint(0, 0x10000), random.randint(0, 0x10000))
             try:
@@ -27,7 +28,7 @@ class ClientBackend(object):
             else:
                 break
 
-        self.backend = DealerRouterSocket(ctx, zmq.DEALER)
+        self.backend = DealerRouterSocket(ctx, zmq.DEALER, side=ClientSide)
         self.backend.connect(endpoint)
 
         # We need to give every client a handle to transmit out-of-band data. The simplest approach would be:
@@ -141,7 +142,7 @@ class ClientBackend(object):
             return client_handle
 
     def _connect(self):
-        socket = ReqSocket(self.ctx, zmq.REQ)
+        socket = ReqSocket(self.ctx, zmq.REQ, side=ClientSide)
         socket.connect(self.endpoint)
         socket.send_msg_raw(b'CONNECT')
         socket.wait()
