@@ -1,3 +1,5 @@
+from typing import List
+
 import threading
 import traceback
 import unittest
@@ -6,7 +8,7 @@ import zmq
 from hedgehog.client import HedgehogClient, find_server, get_client, connect
 from hedgehog.client.components import HedgehogComponentGetterMixin
 from hedgehog.protocol import errors, ServerSide
-from hedgehog.protocol.messages import ack, analog, digital, io, motor, servo, process
+from hedgehog.protocol.messages import Message, ack, analog, digital, io, motor, servo, process
 from hedgehog.protocol.sockets import DealerRouterSocket
 from hedgehog.server import handlers, HedgehogServer
 from hedgehog.server.handlers.hardware import HardwareHandler
@@ -34,9 +36,10 @@ class HedgehogServerDummy(object):
                 func(self)
 
                 ident, msgs = self.socket.recv_msgs()
-                self.testcase.assertEqual(msgs,
-                                          tuple(motor.Action(port, motor.POWER, 0) for port in range(0, 4)) +
-                                          tuple(servo.Action(port, False, 0) for port in range(0, 4)))
+                _msgs = []  # type: List[Message]
+                _msgs.extend(motor.Action(port, motor.POWER, 0) for port in range(0, 4))
+                _msgs.extend(servo.Action(port, False, 0) for port in range(0, 4))
+                self.testcase.assertEqual(msgs, tuple(_msgs))
                 self.socket.send_msgs(ident, [ack.Acknowledgement()] * 8)
 
                 func.exc = None

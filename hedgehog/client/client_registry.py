@@ -1,98 +1,101 @@
+from typing import cast, Any, Callable, Dict, List, Sequence, Set, Tuple, Type
+
 import zmq
 from queue import Queue
 
-from hedgehog.protocol.messages import ReplyMsg, ack, motor, process
+from hedgehog.protocol.messages import ReplyMsg, Message, ack, motor, process
+from hedgehog.protocol.sockets import ReqSocket
 from hedgehog.utils import coroutine
 from hedgehog.utils.zmq.actor import CommandRegistry
 from hedgehog.utils.zmq.pipe import pipe
 
 
 _update_keys = {
-    # motor.StateUpdate: lambda update: update.port,
-    process.StreamUpdate: lambda update: update.pid,
-    process.ExitUpdate: lambda update: update.pid,
-}
+    # motor.StateUpdate: lambda update: cast(motor.StateUpdate, update).port,
+    process.StreamUpdate: lambda update: cast(process.StreamUpdate, update).pid,
+    process.ExitUpdate: lambda update: cast(process.ExitUpdate, update).pid,
+}  # type: Dict[Type[Message], Callable[[Message], Any]]
 
 
-def _update_key(update):
+def _update_key(update: Message) -> Tuple[Type[Message], Any]:
     cls = type(update)
     return cls, _update_keys[cls](update)
 
 
 class _EventHandler(object):
-    def __init__(self, backend, handler):
+    def __init__(self, backend, handler: Callable[[Message], None]) -> None:
         self.pipe, self._pipe = pipe(backend.ctx)
         self.handler = handler
 
-    def run(self):
+    def run(self) -> None:
         registry = CommandRegistry()
         running = True
 
         @registry.command(b'UPDATE')
-        def handle_update(update_raw):
-            update = ReplyMsg.parse(update_raw)
+        def handle_update(update_raw) -> None:
+            update = ReplyMsg.parse(update_raw)  # type: Message
             self.handler(update)
 
         @registry.command(b'$TERM')
-        def handle_term():
+        def handle_term() -> None:
             nonlocal running
             running = False
 
         while running:
             registry.handle(self._pipe.recv_multipart())
 
-    def update(self, update):
+    def update(self, update: Message) -> None:
         self.pipe.send_multipart([b'UPDATE', ReplyMsg.serialize(update)])
 
-    def shutdown(self):
+    def shutdown(self) -> None:
         self.pipe.send(b'$TERM')
 
 
 class EventHandler(object):
-    events = None
+    events = None  # type: Set[Tuple[Type[Message], Any]]
     _is_shutdown = False
 
-    def initialize(self, backend, reply):
+    def initialize(self, backend, reply: Message) -> None:
         raise NotImplementedError()
 
-    def update(self, update):
+    def update(self, update: Message) -> None:
         raise NotImplementedError()
 
-    def shutdown(self):
+    def shutdown(self) -> None:
         if not self._is_shutdown:
             self._is_shutdown = True
             self._shutdown()
 
-    def _shutdown(self):
+    def _shutdown(self) -> None:
         raise NotImplementedError()
 
 
-class MotorUpdateHandler(EventHandler):
-    port = None
-    handler = None
-
-    def __init__(self, on_reached):
-        self.on_reached = on_reached
-
-    def initialize(self, backend, reply):
-        self.port = reply.port
-        self.events = {(motor.StateUpdate, self.port)}
-
-        @coroutine
-        def handle_motor_state_update():
-            update, = yield
-            self.on_reached(self.port, update.state)
-            self.handler.shutdown()
-            yield
-
-        self.handler = _EventHandler(backend, handle_motor_state_update())
-        backend.spawn(self.handler.run)
-
-    def update(self, update):
-        self.handler.update(update)
-
-    def _shutdown(self):
-        self.handler.shutdown()
+# class MotorUpdateHandler(EventHandler):
+#     port = None  # type: int
+#     handler = None  # type: _EventHandler
+#
+#     def __init__(self, on_reached: Callable[[int, int], None]) -> None:
+#         self.on_reached = on_reached
+#
+#     def initialize(self, backend, reply) -> None:
+#         self.port = reply.port
+#         self.events = {(motor.StateUpdate, self.port)}
+#
+#         @coroutine
+#         def handle_motor_state_update():
+#             update, = yield
+#             self.on_reached(self.port, update.state)
+#             self.handler.shutdown()
+#             yield
+#
+#         self.handler = _EventHandler(backend, handle_motor_state_update())
+#         backend.spawn(self.handler.run)
+#
+#     def update(self, update):
+#         self.handler.update(update)
+#
+#     def _shutdown(self):
+#         self.handler.shutdown()
 
 
 class ProcessUpdateHandler(EventHandler):
@@ -165,9 +168,9 @@ class ProcessUpdateHandler(EventHandler):
 
 
 class ClientHandle(object):
-    def __init__(self):
-        self.queue = Queue()
-        self.socket = None
+    def __init__(self) -> None:
+        self.queue = Queue()  # type: Queue
+        self.socket = None  # type: ReqSocket
         self.daemon = False
         self._shutdown_scheduled = False
 
@@ -180,20 +183,20 @@ class ClientHandle(object):
     def __del__(self):
         self.close()
 
-    def close(self):
+    def close(self) -> None:
         if not self.socket.closed:
             self.socket.send_msg_raw(b'DISCONNECT')
             self.socket.wait()
             self.socket.close()
 
-    def push(self, obj):
+    def push(self, obj: Any) -> None:
         self.queue.put(obj)
 
-    def pop(self):
+    def pop(self) -> Any:
         # don't block, as we expect access synchronized via zmq sockets
         return self.queue.get(block=False)
 
-    def send_commands(self, *cmds):
+    def send_commands(self, *cmds: Tuple[Message, EventHandler]) -> Sequence[Message]:
         if self._shutdown_scheduled:
             self.shutdown()
             self._shutdown_scheduled = False
@@ -203,54 +206,53 @@ class ClientHandle(object):
         self.socket.send_msgs([msg for msg, _ in cmds])
         return self.socket.recv_msgs()
 
-    def schedule_shutdown(self):
+    def schedule_shutdown(self) -> None:
         self._shutdown_scheduled = True
 
-    def shutdown(self):
+    def shutdown(self) -> None:
         self.socket.send_msg_raw(b'SHUTDOWN')
         self.socket.wait()
 
 
 class ClientRegistry(object):
-    def __init__(self):
-        self.clients = {}
-        self._handler_queues = {}
-        self._handlers = {}
+    def __init__(self) -> None:
+        self.clients = {}  # type: Dict[Any, ClientHandle]
+        self._handler_queues = {}  # type: Dict[Any, List[Sequence[EventHandler]]]
+        self._handlers = {}  # type: Dict[Tuple[Type[Message], Any], EventHandler]
 
-    def connect(self, key):
+    def connect(self, key: Any) -> ClientHandle:
         client_handle = ClientHandle()
         self.clients[key] = client_handle
         self._handler_queues[key] = []
         return client_handle
 
-    def disconnect(self, key):
+    def disconnect(self, key: Any) -> None:
         del self.clients[key]
 
-    def prepare_register(self, key):
+    def prepare_register(self, key: Any) -> None:
         client_handle = self.clients[key]
         self._handler_queues[key].append(client_handle.pop())
-        pass
 
-    def handle_register(self, key, backend, replies):
+    def handle_register(self, key: Any, backend, replies: Sequence[Message]) -> None:
         handlers = self._handler_queues[key].pop(0)
         assert len(handlers) == len(replies)
-        for handler, reply in zip(handlers, replies):
+        for handler, reply in zip(handlers, replies):  # type: Tuple[EventHandler, Message]
             if handler is None:
                 continue
-            if type(reply) == ack.Acknowledgement and reply.code != ack.OK:
+            if isinstance(reply, ack.Acknowledgement) and reply.code != ack.OK:
                 continue
 
             handler.initialize(backend, reply)
-            for event in handler.events:
+            for event in handler.events:  # type: Tuple[Type[Message], Any]
                 if event in self._handlers:
                     self._handlers[event].shutdown()
                 self._handlers[event] = handler
 
-    def handle_async(self, update):
+    def handle_async(self, update: Message) -> None:
         event = _update_key(update)
         if event in self._handlers:
             self._handlers[event].update(update)
 
-    def shutdown(self):
+    def shutdown(self) -> None:
         for handler in self._handlers.values():
             handler.shutdown()

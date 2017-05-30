@@ -1,21 +1,23 @@
+from typing import Callable, Dict, List, Sequence, Set, Tuple, Type
+
 import logging
 import random
 import threading
 import zmq
 
 from hedgehog.protocol import ClientSide, ServerSide
-from hedgehog.protocol.messages import motor, servo
+from hedgehog.protocol.messages import Message, motor, servo
 from hedgehog.protocol.messages.ack import Acknowledgement, FAILED_COMMAND
 from hedgehog.protocol.sockets import ReqSocket, DealerRouterSocket
 from hedgehog.utils.zmq.pipe import pipe, extended_pipe
 from hedgehog.utils.zmq.poller import Poller
-from .client_registry import ClientRegistry
+from .client_registry import ClientRegistry, ClientHandle
 
 logger = logging.getLogger(__name__)
 
 
 class ClientBackend(object):
-    def __init__(self, ctx, endpoint):
+    def __init__(self, ctx: zmq.Context, endpoint: str) -> None:
         self.ctx = ctx
 
         self.frontend = DealerRouterSocket(ctx, zmq.ROUTER, side=ServerSide).configure(hwm=1000)
@@ -54,31 +56,33 @@ class ClientBackend(object):
 
         threading.Thread(target=self.run).start()
 
-    def shutdown(self):
+    def shutdown(self) -> None:
         if not self._shutdown:
             self._shutdown = True
             self.registry.shutdown()
-            self.backend.send_msgs([], [motor.Action(port, motor.POWER, 0) for port in range(0, 4)] +
-                                       [servo.Action(port, False, 0) for port in range(0, 4)])
+            msgs = []  # type: List[Message]
+            msgs.extend(motor.Action(port, motor.POWER, 0) for port in range(0, 4))
+            msgs.extend(servo.Action(port, False, 0) for port in range(0, 4))
+            self.backend.send_msgs([], msgs)
 
-    def terminate(self):
+    def terminate(self) -> None:
         for socket in list(self.poller.sockets):
             self.poller.unregister(socket)
 
-    def register_frontend(self):
-        handlers = {}
+    def register_frontend(self) -> None:
+        handlers = {}  # type: Dict[str, Callable]
 
         def command(cmd):
             return lambda func: handlers.update({cmd: func})
 
-        def handle():
+        def handle() -> None:
             header, [cmd, *msgs_raw] = self.frontend.recv_msgs_raw()
             handlers[cmd](header, *msgs_raw)
 
         self.poller.register(self.frontend, zmq.POLLIN, handle)
 
         @command(b'CONNECT')
-        def handle_connect(header):
+        def handle_connect(header) -> None:
             client_handle = self.registry.connect(header[0])
 
             self.frontend.send_msg_raw(header, b'')
@@ -87,7 +91,7 @@ class ClientBackend(object):
             self._pipe_backend.wait()
 
         @command(b'DISCONNECT')
-        def handle_disconnect(header):
+        def handle_disconnect(header) -> None:
             self.registry.disconnect(header[0])
             if all(client.daemon for client in self.registry.clients.values()):
                 self.shutdown()
@@ -96,12 +100,12 @@ class ClientBackend(object):
             self.frontend.send_msg_raw(header, b'')
 
         @command(b'SHUTDOWN')
-        def handle_shutdown(header):
+        def handle_shutdown(header) -> None:
             self.shutdown()
             self.frontend.send_msg_raw(header, b'')
 
         @command(b'COMMAND')
-        def handle_command(header, *msgs_raw):
+        def handle_command(header, *msgs_raw: bytes) -> None:
             assert len(msgs_raw) > 0
             if self._shutdown:
                 msgs = [Acknowledgement(FAILED_COMMAND, "Emergency Shutdown activated") for _ in msgs_raw]
@@ -110,8 +114,8 @@ class ClientBackend(object):
                 self.registry.prepare_register(header[0])
                 self.backend.send_msgs_raw(header, msgs_raw)
 
-    def register_backend(self):
-        def handle():
+    def register_backend(self) -> None:
+        def handle() -> None:
             # receive from the backend
             header, msgs = self.backend.recv_msgs()
             assert len(msgs) > 0
@@ -133,7 +137,7 @@ class ClientBackend(object):
         self.poller.register(self.backend, zmq.POLLIN, handle)
 
     @property
-    def client_handle(self):
+    def client_handle(self) -> ClientHandle:
         try:
             return self._local.client_handle
         except AttributeError:
@@ -141,18 +145,18 @@ class ClientBackend(object):
             self._local.client_handle = client_handle
             return client_handle
 
-    def _connect(self):
+    def _connect(self) -> ClientHandle:
         socket = ReqSocket(self.ctx, zmq.REQ, side=ClientSide)
         socket.connect(self.endpoint)
         socket.send_msg_raw(b'CONNECT')
         socket.wait()
         self._pipe_frontend.wait()
-        client_handle = self._pipe_frontend.pop()
+        client_handle = self._pipe_frontend.pop()  # type: ClientHandle
         client_handle.socket = socket
         self._pipe_frontend.signal()
         return client_handle
 
-    def spawn(self, callback, *args, daemon=False, async=False, **kwargs):
+    def spawn(self, callback, *args, daemon=False, async=False, **kwargs) -> None:
         if async:
             def signal(): pass
 
@@ -177,7 +181,7 @@ class ClientBackend(object):
         threading.Thread(target=target, args=args, kwargs=kwargs).start()
         wait()
 
-    def run(self):
+    def run(self) -> None:
         while len(self.poller.sockets) > 0:
             for _, _, handler in self.poller.poll():
                 handler()
