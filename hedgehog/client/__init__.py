@@ -51,7 +51,7 @@ class HedgehogClient(object):
         self.backend.client_handle.shutdown()
 
     def set_input_state(self, port, pullup):
-        self.send(io.StateAction(port, io.INPUT_PULLUP if pullup else io.INPUT_FLOATING))
+        self.send(io.Action(port, io.INPUT_PULLUP if pullup else io.INPUT_FLOATING))
 
     def get_analog(self, port):
         response = self.send(analog.Request(port))
@@ -64,7 +64,7 @@ class HedgehogClient(object):
         return response.value
 
     def set_digital_output(self, port, level):
-        self.send(io.StateAction(port, io.OUTPUT_ON if level else io.OUTPUT_OFF))
+        self.send(io.Action(port, io.OUTPUT_ON if level else io.OUTPUT_OFF))
 
     def set_motor(self, port, state, amount=0, reached_state=motor.POWER, relative=None, absolute=None, on_reached=None):
         if on_reached is not None:

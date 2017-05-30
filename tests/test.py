@@ -204,7 +204,7 @@ class HedgehogAPITestCase(unittest.TestCase):
     @command
     def io_state_action(self, server, port, pullup):
         ident, msg = server.socket.recv_msg()
-        self.assertEqual(msg, io.StateAction(port, io.INPUT_PULLUP if pullup else io.INPUT_FLOATING))
+        self.assertEqual(msg, io.Action(port, io.INPUT_PULLUP if pullup else io.INPUT_FLOATING))
         server.socket.send_msg(ident, ack.Acknowledgement())
 
     @command
@@ -222,7 +222,7 @@ class HedgehogAPITestCase(unittest.TestCase):
     @command
     def io_state_action_output(self, server, port, level):
         ident, msg = server.socket.recv_msg()
-        self.assertEqual(msg, io.StateAction(port, io.OUTPUT_ON if level else io.OUTPUT_OFF))
+        self.assertEqual(msg, io.Action(port, io.OUTPUT_ON if level else io.OUTPUT_OFF))
         server.socket.send_msg(ident, ack.Acknowledgement())
 
     @command
