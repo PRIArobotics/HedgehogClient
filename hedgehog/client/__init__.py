@@ -146,15 +146,15 @@ def find_server(ctx, service='hedgehog_server', accept=None):
             pass
 
         @registry.command(b'EXIT')
-        def handle_enter(*args):
+        def handle_exit(*args):
             pass
 
         @registry.command(b'JOIN')
-        def handle_enter(*args):
+        def handle_join(*args):
             pass
 
         @registry.command(b'LEAVE')
-        def handle_enter(*args):
+        def handle_leave(*args):
             pass
 
         @registry.command(b'$TERM')
@@ -163,7 +163,7 @@ def find_server(ctx, service='hedgehog_server', accept=None):
             terminate()
 
         @registry.command(b'UPDATE')
-        def handle_term():
+        def handle_update():
             peer = node.evt_pipe.pop()
             if accept(peer):
                 terminate()
