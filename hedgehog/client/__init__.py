@@ -1,24 +1,26 @@
+from typing import cast, Callable, Sequence, Tuple
+
 import logging
 import os
+import signal
 import sys
 import time
 import zmq
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from hedgehog.utils.zmq.actor import CommandRegistry
 from hedgehog.utils.zmq.poller import Poller
 from hedgehog.utils.discovery.service_node import ServiceNode
-from hedgehog.protocol import errors, messages
-from hedgehog.protocol.messages import ack, io, analog, digital, motor, servo, process
+from hedgehog.protocol import errors
+from hedgehog.protocol.messages import Message, ack, io, analog, digital, motor, servo, process
 from .client_backend import ClientBackend
-from .client_registry import MotorUpdateHandler, ProcessUpdateHandler
+from .client_registry import EventHandler, ProcessUpdateHandler
 
 logger = logging.getLogger(__name__)
 
 
 class HedgehogClient(object):
-    def __init__(self, ctx, endpoint='tcp://127.0.0.1:10789'):
-        backend = ClientBackend(ctx, endpoint)
-        self.__init(backend, False)
+    def __init__(self, ctx: zmq.Context, endpoint: str='tcp://127.0.0.1:10789') -> None:
+        self.backend = ClientBackend(ctx, endpoint)
 
     def __enter__(self):
         return self
@@ -26,18 +28,11 @@ class HedgehogClient(object):
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
 
-    @classmethod
-    def _backend_new(cls, backend, daemon):
-        self = cls.__new__(cls)
-        self.__init(backend, daemon)
-        return self
+    def close(self) -> None:
+        self.backend.client_handle.close()
 
-    def __init(self, backend, daemon):
-        self.backend = backend
-        self.socket, self.handle = backend._connect(daemon)
-
-    def _send(self, msg, handler=None):
-        reply = self._send_multipart((msg, handler))[0]
+    def send(self, msg: Message, handler: EventHandler=None) -> Message:
+        reply, = self.send_multipart((msg, handler))
         if isinstance(reply, ack.Acknowledgement):
             if reply.code != ack.OK:
                 raise errors.error(reply.code, reply.message)
@@ -45,96 +40,103 @@ class HedgehogClient(object):
         else:
             return reply
 
-    def _send_multipart(self, *cmds):
-        msgs = [messages.serialize(msg) for msg, _ in cmds]
-        handlers = [handler for _, handler in cmds]
+    def send_multipart(self, *cmds: Tuple[Message, EventHandler]) -> Sequence[Message]:
+        return self.backend.client_handle.send_commands(*cmds)
 
-        self.handle.push(handlers)
-        self.socket.send_multipart_raw([b'COMMAND'] + msgs)
-        return self.socket.recv_multipart()
-
-    def spawn(self, callback, *args, daemon=False, **kwargs):
+    def spawn(self, callback, *args, daemon=False, **kwargs) -> None:
         self.backend.spawn(callback, *args, daemon=daemon, **kwargs)
 
-    def shutdown(self):
-        self.socket.send_raw(b'SHUTDOWN')
-        self.socket.recv_raw()
+    def schedule_shutdown(self) -> None:
+        self.backend.client_handle.schedule_shutdown()
 
-    def set_input_state(self, port, pullup):
-        self._send(io.StateAction(port, io.INPUT_PULLUP if pullup else io.INPUT_FLOATING))
+    def shutdown(self) -> None:
+        self.backend.client_handle.shutdown()
 
-    def get_analog(self, port):
-        response = self._send(analog.Request(port))
+    def set_input_state(self, port: int, pullup: bool) -> None:
+        self.send(io.Action(port, io.INPUT_PULLUP if pullup else io.INPUT_FLOATING))
+
+    def get_analog(self, port: int) -> int:
+        response = cast(analog.Reply, self.send(analog.Request(port)))
         assert response.port == port
         return response.value
 
-    def get_digital(self, port):
-        response = self._send(digital.Request(port))
+    def get_digital(self, port: int) -> bool:
+        response = cast(digital.Reply, self.send(digital.Request(port)))
         assert response.port == port
         return response.value
 
-    def set_digital_output(self, port, level):
-        self._send(io.StateAction(port, io.OUTPUT_ON if level else io.OUTPUT_OFF))
+    def set_digital_output(self, port: int, level: bool) -> None:
+        self.send(io.Action(port, io.OUTPUT_ON if level else io.OUTPUT_OFF))
 
-    def set_motor(self, port, state, amount=0, reached_state=motor.POWER, relative=None, absolute=None, on_reached=None):
-        if on_reached is not None:
-            if relative is None and absolute is None:
-                raise ValueError("callback given, but no end position")
-            handler = MotorUpdateHandler(on_reached)
-        else:
-            handler = None
-        self._send(motor.Action(port, state, amount, reached_state, relative, absolute), handler)
+    def get_io_config(self, port: int) -> int:
+        response = cast(io.CommandReply, self.send(io.CommandRequest(port)))
+        assert response.port == port
+        return response.flags
 
-    def move(self, port, amount, state=motor.POWER):
+    def set_motor(self, port: int, state: int, amount: int=0,
+                  reached_state: int=motor.POWER, relative: int=None, absolute: int=None,
+                  on_reached: Callable[[int, int], None]=None) -> None:
+        # if on_reached is not None:
+        #     if relative is None and absolute is None:
+        #         raise ValueError("callback given, but no end position")
+        #     handler = MotorUpdateHandler(on_reached)
+        # else:
+        #     handler = None
+        self.send(motor.Action(port, state, amount, reached_state, relative, absolute))
+
+    def move(self, port: int, amount: int, state: int=motor.POWER) -> None:
         self.set_motor(port, state, amount)
 
-    def move_relative_position(self, port, amount, relative, state=motor.POWER, on_reached=None):
+    def move_relative_position(self, port: int, amount: int, relative: int, state: int=motor.POWER,
+                               on_reached: Callable[[int, int], None]=None) -> None:
         self.set_motor(port, state, amount, relative=relative, on_reached=on_reached)
 
-    def move_absolute_position(self, port, amount, absolute, state=motor.POWER, on_reached=None):
+    def move_absolute_position(self, port: int, amount: int, absolute: int, state: int=motor.POWER,
+                               on_reached: Callable[[int, int], None]=None) -> None:
         self.set_motor(port, state, amount, absolute=absolute, on_reached=on_reached)
 
-    def get_motor(self, port):
-        response = self._send(motor.Request(port))
+    def get_motor_command(self, port: int) -> Tuple[int, int]:
+        response = cast(motor.CommandReply, self.send(motor.CommandRequest(port)))
+        assert response.port == port
+        return response.state, response.amount
+
+    def get_motor_state(self, port: int) -> Tuple[int, int]:
+        response = cast(motor.StateReply, self.send(motor.StateRequest(port)))
         assert response.port == port
         return response.velocity, response.position
 
-    def get_motor_velocity(self, port):
-        velocity, _ = self.get_motor(port)
+    def get_motor_velocity(self, port: int) -> int:
+        velocity, _ = self.get_motor_state(port)
         return velocity
 
-    def get_motor_position(self, port):
-        _, position = self.get_motor(port)
+    def get_motor_position(self, port: int) -> int:
+        _, position = self.get_motor_state(port)
         return position
 
-    def set_motor_position(self, port, position):
-        self._send(motor.SetPositionAction(port, position))
+    def set_motor_position(self, port: int, position: int) -> None:
+        self.send(motor.SetPositionAction(port, position))
 
-    def set_servo(self, port, active, position):
-        self._send(servo.Action(port, active, position))
+    def set_servo(self, port: int, active: bool, position: int) -> None:
+        self.send(servo.Action(port, active, position))
 
-    def execute_process(self, *args, working_dir=None, on_stdout=None, on_stderr=None, on_exit=None):
+    def get_servo_command(self, port: int) -> Tuple[int, int]:
+        response = cast(servo.CommandReply, self.send(servo.CommandRequest(port)))
+        assert response.port == port
+        return response.active, response.position
+
+    def execute_process(self, *args: str, working_dir: str=None, on_stdout=None, on_stderr=None, on_exit=None) -> int:
         if on_stdout is not None or on_stderr is not None or on_exit is not None:
             handler = ProcessUpdateHandler(on_stdout, on_stderr, on_exit)
         else:
             handler = None
-        response = self._send(process.ExecuteRequest(*args, working_dir=working_dir), handler)
+        response = cast(process.ExecuteReply, self.send(process.ExecuteAction(*args, working_dir=working_dir), handler))
         return response.pid
 
-    def signal_process(self, pid, signal=2):
-        self._send(process.SignalAction(pid, signal))
+    def signal_process(self, pid: int, signal: int=2) -> None:
+        self.send(process.SignalAction(pid, signal))
 
-    def send_process_data(self, pid, chunk=b''):
-        self._send(process.StreamAction(pid, process.STDIN, chunk))
-
-    def close(self):
-        if not self.socket.socket.closed:
-            self.socket.send_raw(b'DISCONNECT')
-            self.socket.recv_raw()
-            self.socket.close()
-
-    def __del__(self):
-        self.close()
+    def send_process_data(self, pid: int, chunk: bytes=b'') -> None:
+        self.send(process.StreamAction(pid, process.STDIN, chunk))
 
 
 def find_server(ctx, service='hedgehog_server', accept=None):
@@ -165,15 +167,15 @@ def find_server(ctx, service='hedgehog_server', accept=None):
             pass
 
         @registry.command(b'EXIT')
-        def handle_enter(*args):
+        def handle_exit(*args):
             pass
 
         @registry.command(b'JOIN')
-        def handle_enter(*args):
+        def handle_join(*args):
             pass
 
         @registry.command(b'LEAVE')
-        def handle_enter(*args):
+        def handle_leave(*args):
             pass
 
         @registry.command(b'$TERM')
@@ -182,7 +184,7 @@ def find_server(ctx, service='hedgehog_server', accept=None):
             terminate()
 
         @registry.command(b'UPDATE')
-        def handle_term():
+        def handle_update():
             peer = node.evt_pipe.pop()
             if accept(peer):
                 terminate()
@@ -192,17 +194,19 @@ def find_server(ctx, service='hedgehog_server', accept=None):
         node.request_service(service)
         server = None
 
-        while len(poller.sockets) > 0:
-            items = poller.poll(1000)
-            if len(items) > 0:
-                for _, _, handler in items:
-                    server = handler()
-            else:
-                node.request_service(service)
+        with suppress(KeyboardInterrupt):
+            while len(poller.sockets) > 0:
+                items = poller.poll(1000)
+                if len(items) > 0:
+                    for _, _, handler in items:
+                        server = handler()
+                else:
+                    node.request_service(service)
         return server
 
 
-def get_client(endpoint='tcp://127.0.0.1:10789', service='hedgehog_server', ctx=None):
+def get_client(endpoint='tcp://127.0.0.1:10789', service='hedgehog_server',
+               ctx=None, client_class=HedgehogClient):
     ctx = ctx or zmq.Context()
 
     if endpoint is None:
@@ -212,28 +216,41 @@ def get_client(endpoint='tcp://127.0.0.1:10789', service='hedgehog_server', ctx=
         endpoint = list(server.services[service])[0]
         logger.debug("Chose this endpoint via discovery: {}".format(endpoint))
 
-    return HedgehogClient(ctx, endpoint)
+    return client_class(ctx, endpoint)
+
 
 @contextmanager
-def connect(endpoint='tcp://127.0.0.1:10789', emergency=None, service='hedgehog_server', ctx=None):
-    # TODO a remote application's emergency_stop is remote, so it won't work in case of a disconnection!
-    def emergency_stop(client):
-        try:
-            client.set_input_state(emergency, True)
-            # while not client.get_digital(emergency):
-            while client.get_digital(emergency):
-                time.sleep(0.1)
-            client.shutdown()
-        except errors.FailedCommandError:
-            # the backend was shutdown; that means we don't need to do it, and that the program should terminate
-            # we do our part and let this thread terminate
-            pass
-
+def connect(endpoint='tcp://127.0.0.1:10789', emergency=None, service='hedgehog_server',
+            ctx=None, client_class=HedgehogClient):
     # Force line buffering
     # TODO is there a cleaner way to do this than to reopen stdout, here?
+    # FIXME this only works once per process, so it needs to be removed when running tests
     sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 1)
     sys.stderr = os.fdopen(sys.stderr.fileno(), 'w', 1)
-    with get_client(endpoint, service, ctx) as client:
+
+    with get_client(endpoint, service, ctx, client_class) as client:
+        # FIXME this only works once per process
+        def sigint_handler(signal, frame):
+            client.schedule_shutdown()
+        signal.signal(signal.SIGINT, sigint_handler)
+
+        # TODO a remote application's emergency_stop is remote, so it won't work in case of a disconnection!
+        def emergency_stop():
+            try:
+                client.set_input_state(emergency, True)
+                # while not client.get_digital(emergency):
+                while client.get_digital(emergency):
+                    time.sleep(0.1)
+                client.shutdown()
+            except errors.EmergencyShutdown:
+                # the backend was shutdown; that means we don't need to do it, and that the program should terminate
+                # we do our part and let this thread terminate
+                pass
+
         if emergency is not None:
             client.spawn(emergency_stop, daemon=True)
-        yield client
+
+        try:
+            yield client
+        except errors.EmergencyShutdown as ex:
+            print(ex)
