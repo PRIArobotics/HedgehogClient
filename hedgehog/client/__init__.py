@@ -68,6 +68,11 @@ class HedgehogClient(object):
     def set_digital_output(self, port: int, level: bool) -> None:
         self.send(io.Action(port, io.OUTPUT_ON if level else io.OUTPUT_OFF))
 
+    def get_io_config(self, port: int) -> int:
+        response = cast(io.CommandReply, self.send(io.CommandRequest(port)))
+        assert response.port == port
+        return response.flags
+
     def set_motor(self, port: int, state: int, amount: int=0,
                   reached_state: int=motor.POWER, relative: int=None, absolute: int=None,
                   on_reached: Callable[[int, int], None]=None) -> None:
@@ -90,17 +95,22 @@ class HedgehogClient(object):
                                on_reached: Callable[[int, int], None]=None) -> None:
         self.set_motor(port, state, amount, absolute=absolute, on_reached=on_reached)
 
-    def get_motor(self, port: int) -> Tuple[int, int]:
+    def get_motor_command(self, port: int) -> Tuple[int, int]:
+        response = cast(motor.CommandReply, self.send(motor.CommandRequest(port)))
+        assert response.port == port
+        return response.state, response.amount
+
+    def get_motor_state(self, port: int) -> Tuple[int, int]:
         response = cast(motor.StateReply, self.send(motor.StateRequest(port)))
         assert response.port == port
         return response.velocity, response.position
 
     def get_motor_velocity(self, port: int) -> int:
-        velocity, _ = self.get_motor(port)
+        velocity, _ = self.get_motor_state(port)
         return velocity
 
     def get_motor_position(self, port: int) -> int:
-        _, position = self.get_motor(port)
+        _, position = self.get_motor_state(port)
         return position
 
     def set_motor_position(self, port: int, position: int) -> None:
@@ -108,6 +118,11 @@ class HedgehogClient(object):
 
     def set_servo(self, port: int, active: bool, position: int) -> None:
         self.send(servo.Action(port, active, position))
+
+    def get_servo_command(self, port: int) -> Tuple[int, int]:
+        response = cast(servo.CommandReply, self.send(servo.CommandRequest(port)))
+        assert response.port == port
+        return response.active, response.position
 
     def execute_process(self, *args: str, working_dir: str=None, on_stdout=None, on_stderr=None, on_exit=None) -> int:
         if on_stdout is not None or on_stderr is not None or on_exit is not None:
