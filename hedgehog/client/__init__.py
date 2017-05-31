@@ -1,3 +1,5 @@
+from typing import cast, Callable, Sequence, Tuple
+
 import logging
 import os
 import signal
@@ -9,15 +11,15 @@ from hedgehog.utils.zmq.actor import CommandRegistry
 from hedgehog.utils.zmq.poller import Poller
 from hedgehog.utils.discovery.service_node import ServiceNode
 from hedgehog.protocol import errors
-from hedgehog.protocol.messages import ack, io, analog, digital, motor, servo, process
+from hedgehog.protocol.messages import Message, ack, io, analog, digital, motor, servo, process
 from .client_backend import ClientBackend
-from .client_registry import MotorUpdateHandler, ProcessUpdateHandler
+from .client_registry import EventHandler, ProcessUpdateHandler
 
 logger = logging.getLogger(__name__)
 
 
 class HedgehogClient(object):
-    def __init__(self, ctx, endpoint='tcp://127.0.0.1:10789'):
+    def __init__(self, ctx: zmq.Context, endpoint: str='tcp://127.0.0.1:10789') -> None:
         self.backend = ClientBackend(ctx, endpoint)
 
     def __enter__(self):
@@ -26,10 +28,10 @@ class HedgehogClient(object):
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
 
-    def close(self):
+    def close(self) -> None:
         self.backend.client_handle.close()
 
-    def send(self, msg, handler=None):
+    def send(self, msg: Message, handler: EventHandler=None) -> Message:
         reply, = self.send_multipart((msg, handler))
         if isinstance(reply, ack.Acknowledgement):
             if reply.code != ack.OK:
@@ -38,83 +40,102 @@ class HedgehogClient(object):
         else:
             return reply
 
-    def send_multipart(self, *cmds):
+    def send_multipart(self, *cmds: Tuple[Message, EventHandler]) -> Sequence[Message]:
         return self.backend.client_handle.send_commands(*cmds)
 
-    def spawn(self, callback, *args, daemon=False, **kwargs):
+    def spawn(self, callback, *args, daemon=False, **kwargs) -> None:
         self.backend.spawn(callback, *args, daemon=daemon, **kwargs)
 
-    def schedule_shutdown(self):
+    def schedule_shutdown(self) -> None:
         self.backend.client_handle.schedule_shutdown()
 
-    def shutdown(self):
+    def shutdown(self) -> None:
         self.backend.client_handle.shutdown()
 
-    def set_input_state(self, port, pullup):
-        self.send(io.StateAction(port, io.INPUT_PULLUP if pullup else io.INPUT_FLOATING))
+    def set_input_state(self, port: int, pullup: bool) -> None:
+        self.send(io.Action(port, io.INPUT_PULLUP if pullup else io.INPUT_FLOATING))
 
-    def get_analog(self, port):
-        response = self.send(analog.Request(port))
+    def get_analog(self, port: int) -> int:
+        response = cast(analog.Reply, self.send(analog.Request(port)))
         assert response.port == port
         return response.value
 
-    def get_digital(self, port):
-        response = self.send(digital.Request(port))
+    def get_digital(self, port: int) -> bool:
+        response = cast(digital.Reply, self.send(digital.Request(port)))
         assert response.port == port
         return response.value
 
-    def set_digital_output(self, port, level):
-        self.send(io.StateAction(port, io.OUTPUT_ON if level else io.OUTPUT_OFF))
+    def set_digital_output(self, port: int, level: bool) -> None:
+        self.send(io.Action(port, io.OUTPUT_ON if level else io.OUTPUT_OFF))
 
-    def set_motor(self, port, state, amount=0, reached_state=motor.POWER, relative=None, absolute=None, on_reached=None):
-        if on_reached is not None:
-            if relative is None and absolute is None:
-                raise ValueError("callback given, but no end position")
-            handler = MotorUpdateHandler(on_reached)
-        else:
-            handler = None
-        self.send(motor.Action(port, state, amount, reached_state, relative, absolute), handler)
+    def get_io_config(self, port: int) -> int:
+        response = cast(io.CommandReply, self.send(io.CommandRequest(port)))
+        assert response.port == port
+        return response.flags
 
-    def move(self, port, amount, state=motor.POWER):
+    def set_motor(self, port: int, state: int, amount: int=0,
+                  reached_state: int=motor.POWER, relative: int=None, absolute: int=None,
+                  on_reached: Callable[[int, int], None]=None) -> None:
+        # if on_reached is not None:
+        #     if relative is None and absolute is None:
+        #         raise ValueError("callback given, but no end position")
+        #     handler = MotorUpdateHandler(on_reached)
+        # else:
+        #     handler = None
+        self.send(motor.Action(port, state, amount, reached_state, relative, absolute))
+
+    def move(self, port: int, amount: int, state: int=motor.POWER) -> None:
         self.set_motor(port, state, amount)
 
-    def move_relative_position(self, port, amount, relative, state=motor.POWER, on_reached=None):
+    def move_relative_position(self, port: int, amount: int, relative: int, state: int=motor.POWER,
+                               on_reached: Callable[[int, int], None]=None) -> None:
         self.set_motor(port, state, amount, relative=relative, on_reached=on_reached)
 
-    def move_absolute_position(self, port, amount, absolute, state=motor.POWER, on_reached=None):
+    def move_absolute_position(self, port: int, amount: int, absolute: int, state: int=motor.POWER,
+                               on_reached: Callable[[int, int], None]=None) -> None:
         self.set_motor(port, state, amount, absolute=absolute, on_reached=on_reached)
 
-    def get_motor(self, port):
-        response = self.send(motor.Request(port))
+    def get_motor_command(self, port: int) -> Tuple[int, int]:
+        response = cast(motor.CommandReply, self.send(motor.CommandRequest(port)))
+        assert response.port == port
+        return response.state, response.amount
+
+    def get_motor_state(self, port: int) -> Tuple[int, int]:
+        response = cast(motor.StateReply, self.send(motor.StateRequest(port)))
         assert response.port == port
         return response.velocity, response.position
 
-    def get_motor_velocity(self, port):
-        velocity, _ = self.get_motor(port)
+    def get_motor_velocity(self, port: int) -> int:
+        velocity, _ = self.get_motor_state(port)
         return velocity
 
-    def get_motor_position(self, port):
-        _, position = self.get_motor(port)
+    def get_motor_position(self, port: int) -> int:
+        _, position = self.get_motor_state(port)
         return position
 
-    def set_motor_position(self, port, position):
+    def set_motor_position(self, port: int, position: int) -> None:
         self.send(motor.SetPositionAction(port, position))
 
-    def set_servo(self, port, active, position):
+    def set_servo(self, port: int, active: bool, position: int) -> None:
         self.send(servo.Action(port, active, position))
 
-    def execute_process(self, *args, working_dir=None, on_stdout=None, on_stderr=None, on_exit=None):
+    def get_servo_command(self, port: int) -> Tuple[int, int]:
+        response = cast(servo.CommandReply, self.send(servo.CommandRequest(port)))
+        assert response.port == port
+        return response.active, response.position
+
+    def execute_process(self, *args: str, working_dir: str=None, on_stdout=None, on_stderr=None, on_exit=None) -> int:
         if on_stdout is not None or on_stderr is not None or on_exit is not None:
             handler = ProcessUpdateHandler(on_stdout, on_stderr, on_exit)
         else:
             handler = None
-        response = self.send(process.ExecuteRequest(*args, working_dir=working_dir), handler)
+        response = cast(process.ExecuteReply, self.send(process.ExecuteAction(*args, working_dir=working_dir), handler))
         return response.pid
 
-    def signal_process(self, pid, signal=2):
+    def signal_process(self, pid: int, signal: int=2) -> None:
         self.send(process.SignalAction(pid, signal))
 
-    def send_process_data(self, pid, chunk=b''):
+    def send_process_data(self, pid: int, chunk: bytes=b'') -> None:
         self.send(process.StreamAction(pid, process.STDIN, chunk))
 
 
@@ -146,15 +167,15 @@ def find_server(ctx, service='hedgehog_server', accept=None):
             pass
 
         @registry.command(b'EXIT')
-        def handle_enter(*args):
+        def handle_exit(*args):
             pass
 
         @registry.command(b'JOIN')
-        def handle_enter(*args):
+        def handle_join(*args):
             pass
 
         @registry.command(b'LEAVE')
-        def handle_enter(*args):
+        def handle_leave(*args):
             pass
 
         @registry.command(b'$TERM')
@@ -163,7 +184,7 @@ def find_server(ctx, service='hedgehog_server', accept=None):
             terminate()
 
         @registry.command(b'UPDATE')
-        def handle_term():
+        def handle_update():
             peer = node.evt_pipe.pop()
             if accept(peer):
                 terminate()
