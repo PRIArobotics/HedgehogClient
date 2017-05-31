@@ -437,13 +437,21 @@ class TestComponentGetterAPI(HedgehogAPITestCase):
 
     client_class = HedgehogComponentGetterClient
 
-    @HedgehogAPITestCase.io_state_action.request
+    @HedgehogAPITestCase.io_action_input.request
     def analog_set_state(self, client, port, pullup):
         self.assertEqual(client.analog(port).set_state(pullup), None)
 
-    @HedgehogAPITestCase.io_state_action.request
+    @HedgehogAPITestCase.io_command_request.request
+    def analog_get_config(self, client, port, flags):
+        self.assertEqual(client.analog(port).get_config(), flags)
+
+    @HedgehogAPITestCase.io_action_input.request
     def digital_set_state(self, client, port, pullup):
         self.assertEqual(client.digital(port).set_state(pullup), None)
+
+    @HedgehogAPITestCase.io_command_request.request
+    def digital_get_config(self, client, port, flags):
+        self.assertEqual(client.digital(port).get_config(), flags)
 
     @HedgehogAPITestCase.analog_request.request
     def analog_get(self, client, port, value):
@@ -453,26 +461,37 @@ class TestComponentGetterAPI(HedgehogAPITestCase):
     def digital_get(self, client, port, value):
         self.assertEqual(client.digital(port).get(), value)
 
-    @HedgehogAPITestCase.io_state_action_output.request
+    @HedgehogAPITestCase.io_action_output.request
     def output_set(self, client, port, level):
         self.assertEqual(client.output(port).set(level), None)
+
+    @HedgehogAPITestCase.io_command_request.request
+    def output_get_config(self, client, port, flags):
+        self.assertEqual(client.output(port).get_config(), flags)
 
     def test_ios(self):
         self.run_test(
             self.analog_set_state(0, False),
+            self.analog_get_config(0, io.INPUT_FLOATING),
             self.digital_set_state(0, False),
+            self.digital_get_config(0, io.INPUT_FLOATING),
             self.analog_get(0, 0),
             self.digital_get(0, False),
             self.output_set(0, False),
+            self.output_get_config(0, io.OUTPUT_OFF),
         )
 
     @HedgehogAPITestCase.motor_action.request
     def motor_set(self, client, port, state, amount):
         self.assertEqual(client.motor(port).set(state, amount), None)
 
-    @HedgehogAPITestCase.motor_request.request
-    def motor_get(self, client, port, velocity, position):
-        self.assertEqual(client.motor(port).get(), (velocity, position))
+    @HedgehogAPITestCase.motor_command_request.request
+    def motor_get_command(self, client, port, state, amount):
+        self.assertEqual(client.motor(port).get_command(), (state, amount))
+
+    @HedgehogAPITestCase.motor_state_request.request
+    def motor_get_state(self, client, port, velocity, position):
+        self.assertEqual(client.motor(port).get_state(), (velocity, position))
 
     @HedgehogAPITestCase.motor_set_position_action.request
     def motor_set_position(self, client, port, position):
@@ -481,7 +500,8 @@ class TestComponentGetterAPI(HedgehogAPITestCase):
     def test_motor(self):
         self.run_test(
             self.motor_set(0, motor.POWER, 100),
-            self.motor_get(0, 0, 0),
+            self.motor_get_command(0, 0, 0),
+            self.motor_get_state(0, 0, 0),
             self.motor_set_position(0, 0),
         )
 
@@ -489,9 +509,14 @@ class TestComponentGetterAPI(HedgehogAPITestCase):
     def servo_set(self, client, port, active, position):
         self.assertEqual(client.servo(port).set(active, position), None)
 
+    @HedgehogAPITestCase.servo_command_request.request
+    def servo_get_command(self, client, port, active, position):
+        self.assertEqual(client.servo(port).get_command(), (active, position))
+
     def test_servo(self):
         self.run_test(
             self.servo_set(0, False, 0),
+            self.servo_get_command(0, False, 0),
         )
 
 
