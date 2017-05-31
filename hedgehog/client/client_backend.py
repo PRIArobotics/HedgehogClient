@@ -5,8 +5,8 @@ import random
 import threading
 import zmq
 
-from hedgehog.protocol import ClientSide, ServerSide
-from hedgehog.protocol.messages import Message, motor, servo
+from hedgehog.protocol import ClientSide, ServerSide, Header, RawMessage, Message
+from hedgehog.protocol.messages import motor, servo
 from hedgehog.protocol.messages.ack import Acknowledgement, FAILED_COMMAND
 from hedgehog.protocol.sockets import ReqSocket, DealerRouterSocket
 from hedgehog.utils.zmq.pipe import pipe, extended_pipe
@@ -82,7 +82,7 @@ class ClientBackend(object):
         self.poller.register(self.frontend, zmq.POLLIN, handle)
 
         @command(b'CONNECT')
-        def handle_connect(header) -> None:
+        def handle_connect(header: Header) -> None:
             client_handle = self.registry.connect(header[0])
 
             self.frontend.send_msg_raw(header, b'')
@@ -91,7 +91,7 @@ class ClientBackend(object):
             self._pipe_backend.wait()
 
         @command(b'DISCONNECT')
-        def handle_disconnect(header) -> None:
+        def handle_disconnect(header: Header) -> None:
             self.registry.disconnect(header[0])
             if all(client.daemon for client in self.registry.clients.values()):
                 self.shutdown()
@@ -100,12 +100,12 @@ class ClientBackend(object):
             self.frontend.send_msg_raw(header, b'')
 
         @command(b'SHUTDOWN')
-        def handle_shutdown(header) -> None:
+        def handle_shutdown(header: Header) -> None:
             self.shutdown()
             self.frontend.send_msg_raw(header, b'')
 
         @command(b'COMMAND')
-        def handle_command(header, *msgs_raw: bytes) -> None:
+        def handle_command(header: Header, *msgs_raw: RawMessage) -> None:
             assert len(msgs_raw) > 0
             if self._shutdown:
                 msgs = [Acknowledgement(FAILED_COMMAND, "Emergency Shutdown activated") for _ in msgs_raw]
@@ -117,7 +117,7 @@ class ClientBackend(object):
     def register_backend(self) -> None:
         def handle() -> None:
             # receive from the backend
-            header, msgs = self.backend.recv_msgs()
+            header, msgs = self.backend.recv_msgs()  # type: Tuple[Header, Sequence[Message]]
             assert len(msgs) > 0
             if len(header) == 0:
                 # sent by the backend for shutdown, ignore

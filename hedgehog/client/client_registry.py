@@ -8,7 +8,7 @@ from hedgehog.protocol.sockets import ReqSocket
 from hedgehog.utils import coroutine
 from hedgehog.utils.zmq.actor import CommandRegistry
 from hedgehog.utils.zmq.pipe import pipe
-
+from . import client_backend
 
 _update_keys = {
     # motor.StateUpdate: lambda update: cast(motor.StateUpdate, update).port,
@@ -216,24 +216,24 @@ class ClientHandle(object):
 
 class ClientRegistry(object):
     def __init__(self) -> None:
-        self.clients = {}  # type: Dict[Any, ClientHandle]
-        self._handler_queues = {}  # type: Dict[Any, List[Sequence[EventHandler]]]
+        self.clients = {}  # type: Dict[bytes, ClientHandle]
+        self._handler_queues = {}  # type: Dict[bytes, List[Sequence[EventHandler]]]
         self._handlers = {}  # type: Dict[Tuple[Type[Message], Any], EventHandler]
 
-    def connect(self, key: Any) -> ClientHandle:
+    def connect(self, key: bytes) -> ClientHandle:
         client_handle = ClientHandle()
         self.clients[key] = client_handle
         self._handler_queues[key] = []
         return client_handle
 
-    def disconnect(self, key: Any) -> None:
+    def disconnect(self, key: bytes) -> None:
         del self.clients[key]
 
-    def prepare_register(self, key: Any) -> None:
+    def prepare_register(self, key: bytes) -> None:
         client_handle = self.clients[key]
         self._handler_queues[key].append(client_handle.pop())
 
-    def handle_register(self, key: Any, backend, replies: Sequence[Message]) -> None:
+    def handle_register(self, key: bytes, backend: 'client_backend.ClientBackend', replies: Sequence[Message]) -> None:
         handlers = self._handler_queues[key].pop(0)
         assert len(handlers) == len(replies)
         for handler, reply in zip(handlers, replies):  # type: Tuple[EventHandler, Message]
