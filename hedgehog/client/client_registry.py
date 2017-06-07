@@ -127,6 +127,7 @@ class ProcessUpdateHandler(EventHandler):
             update, = yield
 
             exit_a.wait()
+            exit_a.close()
             if self.on_exit is not None:
                 self.on_exit(self.pid, update.exit_code)
 
@@ -143,6 +144,7 @@ class ProcessUpdateHandler(EventHandler):
                     break
 
             exit_b.signal()
+            exit_b.close()
             self.stderr_handler.shutdown()
             yield
 

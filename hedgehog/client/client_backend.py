@@ -185,3 +185,8 @@ class ClientBackend(object):
         while len(self.poller.sockets) > 0:
             for _, _, handler in self.poller.poll():
                 handler()
+
+        self.frontend.close()
+        self.backend.close()
+        self._pipe_frontend.close()
+        self._pipe_backend.close()

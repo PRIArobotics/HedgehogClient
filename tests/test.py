@@ -386,11 +386,13 @@ class TestHedgehogClientProcessAPI(HedgehogAPITestCase):
             self.assertEqual(_pid, pid)
             self.assertEqual(exit_code, 0)
             exit_b.signal()
+            exit_b.close()
             yield
 
         self.assertEqual(client.execute_process('echo', 'asdf', on_exit=on_exit()), pid)
 
         exit_a.wait()
+        exit_a.close()
 
     @HedgehogAPITestCase.execute_process_echo_asdf.request
     def execute_process_handle_stream(self, client, pid):
@@ -410,11 +412,13 @@ class TestHedgehogClientProcessAPI(HedgehogAPITestCase):
             self.assertEqual(chunk, b'')
 
             exit_b.signal()
+            exit_b.close()
             yield
 
         self.assertEqual(client.execute_process('echo', 'asdf', on_stdout=on_stdout()), pid)
 
         exit_a.wait()
+            exit_a.close()
 
     @HedgehogAPITestCase.execute_process_cat.request
     def execute_process_handle_input(self, client, pid):
@@ -541,11 +545,13 @@ class TestComponentGetterProcessAPI(HedgehogAPITestCase):
             self.assertEqual(_pid, pid)
             self.assertEqual(exit_code, 0)
             exit_b.signal()
+            exit_b.close()
             yield
 
         self.assertEqual(client.process('echo', 'asdf', on_exit=on_exit()).pid, pid)
 
         exit_a.wait()
+        exit_a.close()
 
     @HedgehogAPITestCase.execute_process_echo_asdf.request
     def execute_process_handle_stream(self, client, pid):
@@ -565,11 +571,13 @@ class TestComponentGetterProcessAPI(HedgehogAPITestCase):
             self.assertEqual(chunk, b'')
 
             exit_b.signal()
+            exit_b.close()
             yield
 
         self.assertEqual(client.process('echo', 'asdf', on_stdout=on_stdout()).pid, pid)
 
         exit_a.wait()
+        exit_a.close()
 
     @HedgehogAPITestCase.execute_process_cat.request
     def execute_process_handle_input(self, client, pid):
