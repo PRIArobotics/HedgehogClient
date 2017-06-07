@@ -429,9 +429,9 @@ class TestHedgehogClientProcessAPI(HedgehogAPITestCase):
     def test_execute_process(self):
         self.run_test(
             self.execute_process_handle_nothing(2345),
-            self.execute_process_handle_exit(2345),
-            self.execute_process_handle_stream(2345),
-            self.execute_process_handle_input(2345),
+            self.execute_process_handle_exit(2346),
+            self.execute_process_handle_stream(2347),
+            self.execute_process_handle_input(2348),
         )
 
 
@@ -589,9 +589,9 @@ class TestComponentGetterProcessAPI(HedgehogAPITestCase):
     def test_execute_process(self):
         self.run_test(
             self.execute_process_handle_nothing(2345),
-            self.execute_process_handle_exit(2345),
-            self.execute_process_handle_stream(2345),
-            self.execute_process_handle_input(2345),
+            self.execute_process_handle_exit(2346),
+            self.execute_process_handle_stream(2347),
+            self.execute_process_handle_input(2348),
         )
 
 
