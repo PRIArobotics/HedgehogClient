@@ -207,6 +207,7 @@ def find_server(ctx, service='hedgehog_server', accept=None):
 
 def get_client(endpoint='tcp://127.0.0.1:10789', service='hedgehog_server',
                ctx=None, client_class=HedgehogClient):
+    # TODO when the context is created here, the caller has the responsibility to clean it up!
     ctx = ctx or zmq.Context()
 
     if endpoint is None:
