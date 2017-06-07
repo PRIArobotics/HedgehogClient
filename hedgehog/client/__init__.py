@@ -43,8 +43,8 @@ class HedgehogClient(object):
     def send_multipart(self, *cmds: Tuple[Message, EventHandler]) -> Sequence[Message]:
         return self.backend.client_handle.send_commands(*cmds)
 
-    def spawn(self, callback, *args, daemon=False, **kwargs) -> None:
-        self.backend.spawn(callback, *args, daemon=daemon, **kwargs)
+    def spawn(self, callback, *args, name=None, daemon=False, **kwargs) -> None:
+        self.backend.spawn(callback, *args, name=name, daemon=daemon, **kwargs)
 
     def schedule_shutdown(self) -> None:
         self.backend.client_handle.schedule_shutdown()
@@ -248,7 +248,7 @@ def connect(endpoint='tcp://127.0.0.1:10789', emergency=None, service='hedgehog_
                 pass
 
         if emergency is not None:
-            client.spawn(emergency_stop, daemon=True)
+            client.spawn(emergency_stop, name="emergency_stop", daemon=True)
 
         try:
             yield client

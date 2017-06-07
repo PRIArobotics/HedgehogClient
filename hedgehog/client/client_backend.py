@@ -54,7 +54,7 @@ class ClientBackend(object):
         self.register_backend()
         self._shutdown = False
 
-        threading.Thread(target=self.run).start()
+        threading.Thread(target=self.run, name="client_backend").start()
 
     def shutdown(self) -> None:
         if not self._shutdown:
@@ -156,7 +156,7 @@ class ClientBackend(object):
         self._pipe_frontend.signal()
         return client_handle
 
-    def spawn(self, callback, *args, daemon=False, async=False, **kwargs) -> None:
+    def spawn(self, callback, *args, name=None, daemon=False, async=False, **kwargs) -> None:
         if async:
             def signal(): pass
 
@@ -178,7 +178,7 @@ class ClientBackend(object):
                 signal()
                 callback(*args, **kwargs)
 
-        threading.Thread(target=target, args=args, kwargs=kwargs).start()
+        threading.Thread(target=target, name=name, args=args, kwargs=kwargs).start()
         wait()
 
     def run(self) -> None:
