@@ -46,6 +46,8 @@ class HedgehogServerDummy(object):
             except Exception as exc:
                 traceback.print_exc()
                 func.exc = exc
+            finally:
+                self.socket.close()
 
         thread = threading.Thread(target=target, name=traceback.extract_stack(limit=2)[0].name)
         thread.start()

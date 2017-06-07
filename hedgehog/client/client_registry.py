@@ -43,12 +43,15 @@ class _EventHandler(object):
 
         while running:
             registry.handle(self._pipe.recv_multipart())
+        self._pipe.close()
 
     def update(self, update: Message) -> None:
         self.pipe.send_multipart([b'UPDATE', ReplyMsg.serialize(update)])
 
     def shutdown(self) -> None:
-        self.pipe.send(b'$TERM')
+        if not self.pipe.closed:
+            self.pipe.send(b'$TERM')
+            self.pipe.close()
 
 
 class EventHandler(object):
