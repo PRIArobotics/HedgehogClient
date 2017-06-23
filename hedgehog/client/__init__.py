@@ -119,7 +119,7 @@ class HedgehogClient(object):
     def set_servo(self, port: int, active: bool, position: int) -> None:
         self.send(servo.Action(port, active, position))
 
-    def get_servo_command(self, port: int) -> Tuple[int, int]:
+    def get_servo_command(self, port: int) -> Tuple[bool, int]:
         response = cast(servo.CommandReply, self.send(servo.CommandRequest(port)))
         assert response.port == port
         return response.active, response.position
