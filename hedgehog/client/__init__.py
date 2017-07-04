@@ -43,8 +43,8 @@ class HedgehogClient(object):
     def send_multipart(self, *cmds: Tuple[Message, EventHandler]) -> Sequence[Message]:
         return self.backend.client_handle.send_commands(*cmds)
 
-    def spawn(self, callback, *args, daemon=False, **kwargs) -> None:
-        self.backend.spawn(callback, *args, daemon=daemon, **kwargs)
+    def spawn(self, callback, *args, name=None, daemon=False, **kwargs) -> None:
+        self.backend.spawn(callback, *args, name=name, daemon=daemon, **kwargs)
 
     def schedule_shutdown(self) -> None:
         self.backend.client_handle.schedule_shutdown()
@@ -119,7 +119,7 @@ class HedgehogClient(object):
     def set_servo(self, port: int, active: bool, position: int) -> None:
         self.send(servo.Action(port, active, position))
 
-    def get_servo_command(self, port: int) -> Tuple[int, int]:
+    def get_servo_command(self, port: int) -> Tuple[bool, int]:
         response = cast(servo.CommandReply, self.send(servo.CommandRequest(port)))
         assert response.port == port
         return response.active, response.position
@@ -207,6 +207,7 @@ def find_server(ctx, service='hedgehog_server', accept=None):
 
 def get_client(endpoint='tcp://127.0.0.1:10789', service='hedgehog_server',
                ctx=None, client_class=HedgehogClient):
+    # TODO when the context is created here, the caller has the responsibility to clean it up!
     ctx = ctx or zmq.Context()
 
     if endpoint is None:
@@ -221,18 +222,18 @@ def get_client(endpoint='tcp://127.0.0.1:10789', service='hedgehog_server',
 
 @contextmanager
 def connect(endpoint='tcp://127.0.0.1:10789', emergency=None, service='hedgehog_server',
-            ctx=None, client_class=HedgehogClient):
+            ctx=None, client_class=HedgehogClient, process_setup=True):
     # Force line buffering
     # TODO is there a cleaner way to do this than to reopen stdout, here?
-    # FIXME this only works once per process, so it needs to be removed when running tests
-    sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 1)
-    sys.stderr = os.fdopen(sys.stderr.fileno(), 'w', 1)
+    if process_setup:
+        sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 1)
+        sys.stderr = os.fdopen(sys.stderr.fileno(), 'w', 1)
 
     with get_client(endpoint, service, ctx, client_class) as client:
-        # FIXME this only works once per process
-        def sigint_handler(signal, frame):
-            client.schedule_shutdown()
-        signal.signal(signal.SIGINT, sigint_handler)
+        if process_setup:
+            def sigint_handler(signal, frame):
+                client.schedule_shutdown()
+            signal.signal(signal.SIGINT, sigint_handler)
 
         # TODO a remote application's emergency_stop is remote, so it won't work in case of a disconnection!
         def emergency_stop():
@@ -248,7 +249,7 @@ def connect(endpoint='tcp://127.0.0.1:10789', emergency=None, service='hedgehog_
                 pass
 
         if emergency is not None:
-            client.spawn(emergency_stop, daemon=True)
+            client.spawn(emergency_stop, name="emergency_stop", daemon=True)
 
         try:
             yield client

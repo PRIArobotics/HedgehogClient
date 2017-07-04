@@ -1,0 +1,16 @@
+language: python
+
+# using container based testing is faster, but you can't use sudo
+sudo: false
+
+python:
+    - "3.6"
+#    - "2.7"
+
+# install other libraries using pip
+install:
+    - pip install https://github.com/zeromq/pyre/archive/master.zip
+    - pip install -Ue .[test]
+
+# command to run tests
+script: nosetests -vw tests -e 'run_test'

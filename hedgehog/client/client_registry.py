@@ -43,12 +43,15 @@ class _EventHandler(object):
 
         while running:
             registry.handle(self._pipe.recv_multipart())
+        self._pipe.close()
 
     def update(self, update: Message) -> None:
         self.pipe.send_multipart([b'UPDATE', ReplyMsg.serialize(update)])
 
     def shutdown(self) -> None:
-        self.pipe.send(b'$TERM')
+        if not self.pipe.closed:
+            self.pipe.send(b'$TERM')
+            self.pipe.close()
 
 
 class EventHandler(object):
@@ -127,6 +130,7 @@ class ProcessUpdateHandler(EventHandler):
             update, = yield
 
             exit_a.wait()
+            exit_a.close()
             if self.on_exit is not None:
                 self.on_exit(self.pid, update.exit_code)
 
@@ -143,6 +147,7 @@ class ProcessUpdateHandler(EventHandler):
                     break
 
             exit_b.signal()
+            exit_b.close()
             self.stderr_handler.shutdown()
             yield
 
