@@ -354,9 +354,9 @@ class TestHedgehogClientAPI(HedgehogAPITestCase):
     def set_servo(self, client, port, active, position):
         self.assertEqual(client.set_servo(port, active, position), None)
 
-    @HedgehogAPITestCase.motor_command_request.request
+    @HedgehogAPITestCase.servo_command_request.request
     def get_servo_command(self, client, port, active, position):
-        self.assertEqual(client.get_motor_command(port), (active, position))
+        self.assertEqual(client.get_servo_command(port), (active, position))
 
     def test_servo(self):
         self.run_test(
