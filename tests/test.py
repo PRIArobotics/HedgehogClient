@@ -361,7 +361,8 @@ class TestHedgehogClientAPI(HedgehogAPITestCase):
     def test_servo(self):
         self.run_test(
             self.set_servo(0, False, 0),
-            self.get_servo_command(0, False, 0),
+            self.get_servo_command(0, False, None),
+            self.get_servo_command(0, True, 0),
         )
 
 
@@ -515,7 +516,8 @@ class TestComponentGetterAPI(HedgehogAPITestCase):
     def test_servo(self):
         self.run_test(
             self.servo_set(0, False, 0),
-            self.servo_get_command(0, False, 0),
+            self.servo_get_command(0, False, None),
+            self.servo_get_command(0, True, 0),
         )
 
 
