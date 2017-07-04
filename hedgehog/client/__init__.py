@@ -222,18 +222,18 @@ def get_client(endpoint='tcp://127.0.0.1:10789', service='hedgehog_server',
 
 @contextmanager
 def connect(endpoint='tcp://127.0.0.1:10789', emergency=None, service='hedgehog_server',
-            ctx=None, client_class=HedgehogClient):
+            ctx=None, client_class=HedgehogClient, process_setup=True):
     # Force line buffering
     # TODO is there a cleaner way to do this than to reopen stdout, here?
-    # FIXME this only works once per process, so it needs to be removed when running tests
-    sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 1)
-    sys.stderr = os.fdopen(sys.stderr.fileno(), 'w', 1)
+    if process_setup:
+        sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 1)
+        sys.stderr = os.fdopen(sys.stderr.fileno(), 'w', 1)
 
     with get_client(endpoint, service, ctx, client_class) as client:
-        # FIXME this only works once per process
-        def sigint_handler(signal, frame):
-            client.schedule_shutdown()
-        signal.signal(signal.SIGINT, sigint_handler)
+        if process_setup:
+            def sigint_handler(signal, frame):
+                client.schedule_shutdown()
+            signal.signal(signal.SIGINT, sigint_handler)
 
         # TODO a remote application's emergency_stop is remote, so it won't work in case of a disconnection!
         def emergency_stop():

@@ -162,13 +162,13 @@ class TestClientConvenienceFunctions(unittest.TestCase):
     def test_connect(self):
         with zmq.Context() as ctx:
             with HedgehogServer(ctx, 'inproc://controller', handler()):
-                with connect('inproc://controller', ctx=ctx) as client:
+                with connect('inproc://controller', ctx=ctx, process_setup=False) as client:
                     self.assertEqual(client.get_analog(0), 0)
 
     def test_connect_with_emergency_shutdown(self):
         with zmq.Context() as ctx:
             with HedgehogServer(ctx, 'inproc://controller', handler()):
-                with connect('inproc://controller', emergency=0, ctx=ctx) as client:
+                with connect('inproc://controller', emergency=0, ctx=ctx, process_setup=False) as client:
                     self.assertEqual(client.get_analog(0), 0)
 
 
