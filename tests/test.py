@@ -61,6 +61,7 @@ class HedgehogServerDummy(object):
         return func
 
 
+@unittest.skip
 class TestHedgehogClient(unittest.TestCase):
     def test_connect(self):
         with zmq.Context() as ctx:
@@ -139,6 +140,7 @@ class TestHedgehogClient(unittest.TestCase):
             thread.join()
 
 
+@unittest.skip
 class TestClientConvenienceFunctions(unittest.TestCase):
     def test_find_server(self):
         with zmq.Context() as ctx:
@@ -366,6 +368,7 @@ class TestHedgehogClientAPI(HedgehogAPITestCase):
         )
 
 
+@unittest.skip
 class TestHedgehogClientProcessAPI(HedgehogAPITestCase):
     @HedgehogAPITestCase.execute_process_echo_asdf.request
     def execute_process_handle_nothing(self, client, pid):
@@ -521,6 +524,7 @@ class TestComponentGetterAPI(HedgehogAPITestCase):
         )
 
 
+@unittest.skip
 class TestComponentGetterProcessAPI(HedgehogAPITestCase):
     class HedgehogComponentGetterClient(HedgehogComponentGetterMixin, HedgehogClient):
         pass
