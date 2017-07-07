@@ -140,7 +140,6 @@ class TestHedgehogClient(unittest.TestCase):
             thread.join()
 
 
-@unittest.skip
 class TestClientConvenienceFunctions(unittest.TestCase):
     def test_find_server(self):
         with zmq.Context() as ctx:
@@ -167,6 +166,7 @@ class TestClientConvenienceFunctions(unittest.TestCase):
                 with connect('inproc://controller', ctx=ctx, process_setup=False) as client:
                     self.assertEqual(client.get_analog(0), 0)
 
+    @unittest.skip
     def test_connect_with_emergency_shutdown(self):
         with zmq.Context() as ctx:
             with HedgehogServer(ctx, 'inproc://controller', handler()):

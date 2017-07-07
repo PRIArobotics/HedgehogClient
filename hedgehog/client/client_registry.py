@@ -8,7 +8,10 @@ from hedgehog.protocol.sockets import ReqSocket
 from hedgehog.utils import coroutine
 from hedgehog.utils.zmq.actor import CommandRegistry
 from hedgehog.utils.zmq.pipe import pipe
-from . import client_backend
+
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from . import client_backend
 
 _update_keys = {
     # motor.StateUpdate: lambda update: cast(motor.StateUpdate, update).port,
