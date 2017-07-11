@@ -46,9 +46,6 @@ class HedgehogClient(object):
     def spawn(self, callback, *args, name=None, daemon=False, **kwargs) -> None:
         self.backend.spawn(callback, *args, name=name, daemon=daemon, **kwargs)
 
-    def schedule_shutdown(self) -> None:
-        self.backend.client_handle.schedule_shutdown()
-
     def shutdown(self) -> None:
         self.backend.client_handle.shutdown()
 
@@ -232,7 +229,7 @@ def connect(endpoint='tcp://127.0.0.1:10789', emergency=None, service='hedgehog_
     with get_client(endpoint, service, ctx, client_class) as client:
         if process_setup:
             def sigint_handler(signal, frame):
-                client.schedule_shutdown()
+                client.shutdown()
             signal.signal(signal.SIGINT, sigint_handler)
 
         # TODO a remote application's emergency_stop is remote, so it won't work in case of a disconnection!
