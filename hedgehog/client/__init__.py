@@ -46,8 +46,8 @@ class HedgehogClient(object):
     def spawn(self, callback, *args, name=None, daemon=False, **kwargs) -> None:
         self.backend.spawn(callback, *args, name=name, daemon=daemon, **kwargs)
 
-    def shutdown(self) -> None:
-        self.backend.client_handle.shutdown()
+    def shutdown(self, raise_shutdown=False) -> None:
+        self.backend.client_handle.shutdown(raise_shutdown=raise_shutdown)
 
     def set_input_state(self, port: int, pullup: bool) -> None:
         self.send(io.Action(port, io.INPUT_PULLUP if pullup else io.INPUT_FLOATING))
@@ -227,9 +227,13 @@ def connect(endpoint='tcp://127.0.0.1:10789', emergency=None, service='hedgehog_
         sys.stderr = os.fdopen(sys.stderr.fileno(), 'w', 1)
 
     with get_client(endpoint, service, ctx, client_class) as client:
+        # getting the handle for the first time in the interrupt handler is problematic,
+        # so make sure it is already fetched as the first thing
+        client.backend.client_handle
+
         if process_setup:
             def sigint_handler(signal, frame):
-                client.shutdown()
+                client.shutdown(raise_shutdown=True)
             signal.signal(signal.SIGINT, sigint_handler)
 
         # TODO a remote application's emergency_stop is remote, so it won't work in case of a disconnection!
@@ -239,7 +243,8 @@ def connect(endpoint='tcp://127.0.0.1:10789', emergency=None, service='hedgehog_
                 # while not client.get_digital(emergency):
                 while client.get_digital(emergency):
                     time.sleep(0.1)
-                client.shutdown()
+
+                os.kill(os.getpid(), signal.SIGINT)
             except errors.EmergencyShutdown:
                 # the backend was shutdown; that means we don't need to do it, and that the program should terminate
                 # we do our part and let this thread terminate

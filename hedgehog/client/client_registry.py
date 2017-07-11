@@ -4,6 +4,7 @@ import zmq
 from contextlib import contextmanager
 from queue import Queue
 
+from hedgehog.protocol import errors
 from hedgehog.protocol.messages import ReplyMsg, Message, ack, motor, process
 from hedgehog.protocol.sockets import ReqSocket
 from hedgehog.utils import coroutine
@@ -179,6 +180,7 @@ class ProcessUpdateHandler(EventHandler):
 _IDLE = 0
 _CRITICAL = 1
 _SHUTDOWN_SCHEDULED = 2
+_SHUTDOWN_SCHEDULED_RAISE = 3
 
 
 class ClientHandle(object):
@@ -205,9 +207,13 @@ class ClientHandle(object):
             yield
         finally:
             if self._state == _SHUTDOWN_SCHEDULED:
-                self._shutdown_now()
-
-            self._state = _IDLE
+                self._state = _IDLE
+                self._shutdown_now(raise_shutdown=False)
+            elif self._state == _SHUTDOWN_SCHEDULED_RAISE:
+                self._state = _IDLE
+                self._shutdown_now(raise_shutdown=True)
+            else:
+                self._state = _IDLE
 
     def close(self) -> None:
         with self._critical_section():
@@ -230,15 +236,17 @@ class ClientHandle(object):
             self.socket.send_msgs([msg for msg, _ in cmds])
             return self.socket.recv_msgs()
 
-    def shutdown(self) -> None:
+    def shutdown(self, raise_shutdown=False) -> None:
         if self._state == _IDLE:
-            self._shutdown_now()
+            self._shutdown_now(raise_shutdown=raise_shutdown)
         else:
-            self._state = _SHUTDOWN_SCHEDULED
+            self._state = _SHUTDOWN_SCHEDULED_RAISE if raise_shutdown else _SHUTDOWN_SCHEDULED
 
-    def _shutdown_now(self) -> None:
+    def _shutdown_now(self, raise_shutdown=False) -> None:
         self.socket.send_msg_raw(b'SHUTDOWN')
         self.socket.wait()
+        if raise_shutdown:
+            raise errors.EmergencyShutdown("Emergency Shutdown activated")
 
 
 class ClientRegistry(object):
