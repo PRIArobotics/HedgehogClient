@@ -217,14 +217,41 @@ def get_client(endpoint='tcp://127.0.0.1:10789', service='hedgehog_server',
     return client_class(ctx, endpoint)
 
 
+class __ProcessConfig(object):
+    INSTANCE = None
+
+    def __init__(self) -> None:
+        self.clients = []
+
+        sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 1)
+        sys.stderr = os.fdopen(sys.stderr.fileno(), 'w', 1)
+
+        def sigint_handler(signal, frame):
+            for client in self.clients:
+                # TODO this means one client might raise in the critical section of another.
+                # overthink the shutdown & throwing mechanism
+                client.shutdown(raise_shutdown=True)
+
+        signal.signal(signal.SIGINT, sigint_handler)
+
+    @classmethod
+    def instance(cls) -> '__ProcessConfig':
+        if cls.INSTANCE is None:
+            cls.INSTANCE = cls()
+        return cls.INSTANCE
+
+    def register_sigint(self, client: HedgehogClient) -> None:
+        self.clients.append(client)
+
+
 @contextmanager
 def connect(endpoint='tcp://127.0.0.1:10789', emergency=None, service='hedgehog_server',
             ctx=None, client_class=HedgehogClient, process_setup=True):
     # Force line buffering
     # TODO is there a cleaner way to do this than to reopen stdout, here?
     if process_setup:
-        sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 1)
-        sys.stderr = os.fdopen(sys.stderr.fileno(), 'w', 1)
+        # ensure that reopening did happen
+        __ProcessConfig.instance()
 
     with get_client(endpoint, service, ctx, client_class) as client:
         # getting the handle for the first time in the interrupt handler is problematic,
@@ -232,9 +259,7 @@ def connect(endpoint='tcp://127.0.0.1:10789', emergency=None, service='hedgehog_
         client.backend.client_handle
 
         if process_setup:
-            def sigint_handler(signal, frame):
-                client.shutdown(raise_shutdown=True)
-            signal.signal(signal.SIGINT, sigint_handler)
+            __ProcessConfig.instance().register_sigint(client)
 
         # TODO a remote application's emergency_stop is remote, so it won't work in case of a disconnection!
         def emergency_stop():
