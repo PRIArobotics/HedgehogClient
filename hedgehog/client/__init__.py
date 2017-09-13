@@ -46,19 +46,17 @@ class HedgehogClient(object):
     def spawn(self, callback, *args, name=None, daemon=False, **kwargs) -> None:
         self.backend.spawn(callback, *args, name=name, daemon=daemon, **kwargs)
 
-    def shutdown(self, exception=False) -> None:
+    def shutdown(self) -> None:
         """
         Shuts down the client's backend.
         A shutdown may occur normally in any thread, or in an interrupt handler on the main thread. If this is invoked
         on an interrupt handler during socket communication, the shutdown is deferred until after the socket operation.
-        The `exception` parameter may be used to throw `EmergencyShutdown` in the case of a deferred shutdown; it is
-        ignored if an immediate shutdown is performed. This method returns True for an immediate shutdown, False for a
-        deferred one.
+        In that case, `EmergencyShutdown` is raised on the main thread after deferred shutdown. This method returns True
+        for an immediate shutdown, False for a deferred one.
 
-        :param exception: Whether to throw `EmergencyShutdown` in case of deferred shutdown
         :return: Whether shutdown was performed immediately
         """
-        return self.backend.client_handle.shutdown(exception=exception)
+        return self.backend.client_handle.shutdown()
 
     def set_input_state(self, port: int, pullup: bool) -> None:
         self.send(io.Action(port, io.INPUT_PULLUP if pullup else io.INPUT_FLOATING))
@@ -238,12 +236,11 @@ class __ProcessConfig(object):
         sys.stderr = os.fdopen(sys.stderr.fileno(), 'w', 1)
 
         def sigint_handler(signal, frame):
-            immediate = True
-            for client in self.clients:
-                immediate &= client.shutdown(exception=True)
-            if immediate:
-                # no client handle was in a critical section, so we can immediately raise `EmergencyShutdown`
-                raise errors.EmergencyShutdown("Emergency Shutdown activated")
+	        # note that this list comprehension has serious side effects!
+	        immediates = [client.shutdown() for client in self.clients]
+	        if all(immediates):
+	            # no client handle was in a critical section, so we immediately raise `EmergencyShutdown`
+	            raise errors.EmergencyShutdown("Emergency Shutdown activated")
 
         signal.signal(signal.SIGINT, sigint_handler)
 
