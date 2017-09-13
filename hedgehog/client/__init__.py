@@ -236,11 +236,7 @@ class __ProcessConfig(object):
         sys.stderr = os.fdopen(sys.stderr.fileno(), 'w', 1)
 
         def sigint_handler(signal, frame):
-	        # note that this list comprehension has serious side effects!
-	        immediates = [client.shutdown() for client in self.clients]
-	        if all(immediates):
-	            # no client handle was in a critical section, so we immediately raise `EmergencyShutdown`
-	            raise errors.EmergencyShutdown("Emergency Shutdown activated")
+            self.shutdown()
 
         signal.signal(signal.SIGINT, sigint_handler)
 
@@ -252,6 +248,17 @@ class __ProcessConfig(object):
 
     def register_sigint(self, client: HedgehogClient) -> None:
         self.clients.append(client)
+
+    def shutdown(self) -> None:
+        # note that this list comprehension has serious side effects!
+        immediates = [client.shutdown() for client in self.clients]
+        if all(immediates):
+            # no client handle was in a critical section, so we immediately raise `EmergencyShutdown`
+            raise errors.EmergencyShutdown("Emergency Shutdown activated")
+
+
+def shutdown() -> None:
+    __ProcessConfig.instance().shutdown()
 
 
 @contextmanager
