@@ -208,10 +208,11 @@ class ClientHandle(object):
         finally:
             if self._state == _SHUTDOWN_SCHEDULED:
                 self._state = _IDLE
-                self._shutdown_now(raise_shutdown=False)
+                self._shutdown_now()
             elif self._state == _SHUTDOWN_SCHEDULED_RAISE:
                 self._state = _IDLE
-                self._shutdown_now(raise_shutdown=True)
+                self._shutdown_now()
+                raise errors.EmergencyShutdown("Emergency Shutdown activated")
             else:
                 self._state = _IDLE
 
@@ -236,17 +237,28 @@ class ClientHandle(object):
             self.socket.send_msgs([msg for msg, _ in cmds])
             return self.socket.recv_msgs()
 
-    def shutdown(self, raise_shutdown=False) -> None:
-        if self._state == _IDLE:
-            self._shutdown_now(raise_shutdown=raise_shutdown)
-        else:
-            self._state = _SHUTDOWN_SCHEDULED_RAISE if raise_shutdown else _SHUTDOWN_SCHEDULED
+    def shutdown(self, exception=False) -> bool:
+        """
+        Shuts down the backend this client handle is connected to.
+        A shutdown may occur normally in any thread, or in an interrupt handler on the main thread. If this is invoked
+        on an interrupt handler during socket communication, the shutdown is deferred until after the socket operation.
+        The `exception` parameter may be used to throw `EmergencyShutdown` in the case of a deferred shutdown; it is
+        ignored if an immediate shutdown is performed. This method returns True for an immediate shutdown, False for a
+        deferred one.
 
-    def _shutdown_now(self, raise_shutdown=False) -> None:
+        :param exception: Whether to throw `EmergencyShutdown` in case of deferred shutdown
+        :return: Whether shutdown was performed immediately
+        """
+        if self._state == _IDLE:
+            self._shutdown_now()
+            return True
+        else:
+            self._state = _SHUTDOWN_SCHEDULED_RAISE if exception else _SHUTDOWN_SCHEDULED
+            return False
+
+    def _shutdown_now(self) -> None:
         self.socket.send_msg_raw(b'SHUTDOWN')
         self.socket.wait()
-        if raise_shutdown:
-            raise errors.EmergencyShutdown("Emergency Shutdown activated")
 
 
 class ClientRegistry(object):
