@@ -524,7 +524,6 @@ class TestComponentGetterAPI(HedgehogAPITestCase):
         )
 
 
-@unittest.skip
 class TestComponentGetterProcessAPI(HedgehogAPITestCase):
     class HedgehogComponentGetterClient(HedgehogComponentGetterMixin, HedgehogClient):
         pass
