@@ -246,8 +246,11 @@ class __ProcessConfig(object):
             cls.INSTANCE = cls()
         return cls.INSTANCE
 
-    def register_sigint(self, client: HedgehogClient) -> None:
+    @contextmanager
+    def register_client(self, client: HedgehogClient) -> None:
         self.clients.append(client)
+        yield
+        self.clients.remove(client)
 
     def shutdown(self) -> None:
         # note that this list comprehension has serious side effects!
@@ -275,27 +278,28 @@ def connect(endpoint='tcp://127.0.0.1:10789', emergency=None, service='hedgehog_
         # so make sure it is already fetched as the first thing
         client.backend.client_handle
 
-        if process_setup:
-            __ProcessConfig.instance().register_sigint(client)
+        # if process_setup is set, register the client object with the __ProcessConfig.
+        # if not, suppress() acts as a dummy
+        with __ProcessConfig.instance().register_client(client) if process_setup else suppress():
 
-        # TODO a remote application's emergency_stop is remote, so it won't work in case of a disconnection!
-        def emergency_stop():
+            # TODO a remote application's emergency_stop is remote, so it won't work in case of a disconnection!
+            def emergency_stop():
+                try:
+                    client.set_input_state(emergency, True)
+                    # while not client.get_digital(emergency):
+                    while client.get_digital(emergency):
+                        time.sleep(0.1)
+
+                    os.kill(os.getpid(), signal.SIGINT)
+                except errors.EmergencyShutdown:
+                    # the backend was shutdown; that means we don't need to do it, and that the program should terminate
+                    # we do our part and let this thread terminate
+                    pass
+
+            if emergency is not None:
+                client.spawn(emergency_stop, name="emergency_stop", daemon=True)
+
             try:
-                client.set_input_state(emergency, True)
-                # while not client.get_digital(emergency):
-                while client.get_digital(emergency):
-                    time.sleep(0.1)
-
-                os.kill(os.getpid(), signal.SIGINT)
-            except errors.EmergencyShutdown:
-                # the backend was shutdown; that means we don't need to do it, and that the program should terminate
-                # we do our part and let this thread terminate
-                pass
-
-        if emergency is not None:
-            client.spawn(emergency_stop, name="emergency_stop", daemon=True)
-
-        try:
-            yield client
-        except errors.EmergencyShutdown as ex:
-            print(ex)
+                yield client
+            except errors.EmergencyShutdown as ex:
+                print(ex)
