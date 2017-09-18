@@ -46,11 +46,17 @@ class HedgehogClient(object):
     def spawn(self, callback, *args, name=None, daemon=False, **kwargs) -> None:
         self.backend.spawn(callback, *args, name=name, daemon=daemon, **kwargs)
 
-    def schedule_shutdown(self) -> None:
-        self.backend.client_handle.schedule_shutdown()
-
     def shutdown(self) -> None:
-        self.backend.client_handle.shutdown()
+        """
+        Shuts down the client's backend.
+        A shutdown may occur normally in any thread, or in an interrupt handler on the main thread. If this is invoked
+        on an interrupt handler during socket communication, the shutdown is deferred until after the socket operation.
+        In that case, `EmergencyShutdown` is raised on the main thread after deferred shutdown. This method returns True
+        for an immediate shutdown, False for a deferred one.
+
+        :return: Whether shutdown was performed immediately
+        """
+        return self.backend.client_handle.shutdown()
 
     def set_input_state(self, port: int, pullup: bool) -> None:
         self.send(io.Action(port, io.INPUT_PULLUP if pullup else io.INPUT_FLOATING))
@@ -220,38 +226,80 @@ def get_client(endpoint='tcp://127.0.0.1:10789', service='hedgehog_server',
     return client_class(ctx, endpoint)
 
 
+class __ProcessConfig(object):
+    INSTANCE = None
+
+    def __init__(self) -> None:
+        self.clients = []
+
+        sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 1)
+        sys.stderr = os.fdopen(sys.stderr.fileno(), 'w', 1)
+
+        def sigint_handler(signal, frame):
+            self.shutdown()
+
+        signal.signal(signal.SIGINT, sigint_handler)
+
+    @classmethod
+    def instance(cls) -> '__ProcessConfig':
+        if cls.INSTANCE is None:
+            cls.INSTANCE = cls()
+        return cls.INSTANCE
+
+    @contextmanager
+    def register_client(self, client: HedgehogClient) -> None:
+        self.clients.append(client)
+        yield
+        self.clients.remove(client)
+
+    def shutdown(self) -> None:
+        # note that this list comprehension has serious side effects!
+        immediates = [client.shutdown() for client in self.clients]
+        if all(immediates):
+            # no client handle was in a critical section, so we immediately raise `EmergencyShutdown`
+            raise errors.EmergencyShutdown("Emergency Shutdown activated")
+
+
+def shutdown() -> None:
+    __ProcessConfig.instance().shutdown()
+
+
 @contextmanager
 def connect(endpoint='tcp://127.0.0.1:10789', emergency=None, service='hedgehog_server',
             ctx=None, client_class=HedgehogClient, process_setup=True):
     # Force line buffering
     # TODO is there a cleaner way to do this than to reopen stdout, here?
     if process_setup:
-        sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 1)
-        sys.stderr = os.fdopen(sys.stderr.fileno(), 'w', 1)
+        # ensure that reopening did happen
+        __ProcessConfig.instance()
 
     with get_client(endpoint, service, ctx, client_class) as client:
-        if process_setup:
-            def sigint_handler(signal, frame):
-                client.schedule_shutdown()
-            signal.signal(signal.SIGINT, sigint_handler)
+        # getting the handle for the first time in the interrupt handler is problematic,
+        # so make sure it is already fetched as the first thing
+        client.backend.client_handle
 
-        # TODO a remote application's emergency_stop is remote, so it won't work in case of a disconnection!
-        def emergency_stop():
+        # if process_setup is set, register the client object with the __ProcessConfig.
+        # if not, suppress() acts as a dummy
+        with __ProcessConfig.instance().register_client(client) if process_setup else suppress():
+
+            # TODO a remote application's emergency_stop is remote, so it won't work in case of a disconnection!
+            def emergency_stop():
+                try:
+                    client.set_input_state(emergency, True)
+                    # while not client.get_digital(emergency):
+                    while client.get_digital(emergency):
+                        time.sleep(0.1)
+
+                    os.kill(os.getpid(), signal.SIGINT)
+                except errors.EmergencyShutdown:
+                    # the backend was shutdown; that means we don't need to do it, and that the program should terminate
+                    # we do our part and let this thread terminate
+                    pass
+
+            if emergency is not None:
+                client.spawn(emergency_stop, name="emergency_stop", daemon=True)
+
             try:
-                client.set_input_state(emergency, True)
-                # while not client.get_digital(emergency):
-                while client.get_digital(emergency):
-                    time.sleep(0.1)
-                client.shutdown()
-            except errors.EmergencyShutdown:
-                # the backend was shutdown; that means we don't need to do it, and that the program should terminate
-                # we do our part and let this thread terminate
-                pass
-
-        if emergency is not None:
-            client.spawn(emergency_stop, name="emergency_stop", daemon=True)
-
-        try:
-            yield client
-        except errors.EmergencyShutdown as ex:
-            print(ex)
+                yield client
+            except errors.EmergencyShutdown as ex:
+                print(ex)

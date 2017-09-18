@@ -1,8 +1,10 @@
 from typing import cast, Any, Callable, Dict, List, Sequence, Set, Tuple, Type
 
 import zmq
+from contextlib import contextmanager
 from queue import Queue
 
+from hedgehog.protocol import errors
 from hedgehog.protocol.messages import ReplyMsg, Message, ack, motor, process
 from hedgehog.protocol.sockets import ReqSocket
 from hedgehog.utils import coroutine
@@ -175,12 +177,17 @@ class ProcessUpdateHandler(EventHandler):
         self.stderr_handler.shutdown()
 
 
+_IDLE = 0
+_CRITICAL = 1
+_SHUTDOWN_SCHEDULED = 2
+
+
 class ClientHandle(object):
     def __init__(self) -> None:
         self.queue = Queue()  # type: Queue
         self.socket = None  # type: ReqSocket
         self.daemon = False
-        self._shutdown_scheduled = False
+        self._state = _IDLE
 
     def __enter__(self):
         return self
@@ -191,11 +198,26 @@ class ClientHandle(object):
     def __del__(self):
         self.close()
 
+    @contextmanager
+    def _critical_section(self):
+        assert self._state == _IDLE
+        try:
+            self._state = _CRITICAL
+            yield
+        finally:
+            if self._state == _SHUTDOWN_SCHEDULED:
+                self._state = _IDLE
+                self._shutdown_now()
+                raise errors.EmergencyShutdown("Emergency Shutdown activated")
+            else:
+                self._state = _IDLE
+
     def close(self) -> None:
-        if not self.socket.closed:
-            self.socket.send_msg_raw(b'DISCONNECT')
-            self.socket.wait()
-            self.socket.close()
+        with self._critical_section():
+            if not self.socket.closed:
+                self.socket.send_msg_raw(b'DISCONNECT')
+                self.socket.wait()
+                self.socket.close()
 
     def push(self, obj: Any) -> None:
         self.queue.put(obj)
@@ -205,19 +227,30 @@ class ClientHandle(object):
         return self.queue.get(block=False)
 
     def send_commands(self, *cmds: Tuple[Message, EventHandler]) -> Sequence[Message]:
-        if self._shutdown_scheduled:
-            self.shutdown()
-            self._shutdown_scheduled = False
+        with self._critical_section():
+            self.push([handler for _, handler in cmds])
+            self.socket.send(b'COMMAND', zmq.SNDMORE)
+            self.socket.send_msgs([msg for msg, _ in cmds])
+            return self.socket.recv_msgs()
 
-        self.push([handler for _, handler in cmds])
-        self.socket.send(b'COMMAND', zmq.SNDMORE)
-        self.socket.send_msgs([msg for msg, _ in cmds])
-        return self.socket.recv_msgs()
+    def shutdown(self) -> bool:
+        """
+        Shuts down the backend this client handle is connected to.
+        A shutdown may occur normally in any thread, or in an interrupt handler on the main thread. If this is invoked
+        on an interrupt handler during socket communication, the shutdown is deferred until after the socket operation.
+        In that case, `EmergencyShutdown` is raised on the main thread after deferred shutdown. This method returns True
+        for an immediate shutdown, False for a deferred one.
 
-    def schedule_shutdown(self) -> None:
-        self._shutdown_scheduled = True
+        :return: Whether shutdown was performed immediately
+        """
+        if self._state == _IDLE:
+            self._shutdown_now()
+            return True
+        else:
+            self._state = _SHUTDOWN_SCHEDULED
+            return False
 
-    def shutdown(self) -> None:
+    def _shutdown_now(self) -> None:
         self.socket.send_msg_raw(b'SHUTDOWN')
         self.socket.wait()
 

@@ -9,6 +9,7 @@ python:
 
 # install other libraries using pip
 install:
+    - pip install -U setuptools
     - pip install https://github.com/zeromq/pyre/archive/master.zip
     - pip install -Ue .[test]
 
