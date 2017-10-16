@@ -12,6 +12,7 @@ from hedgehog.utils.zmq.poller import Poller
 from hedgehog.utils.discovery.service_node import ServiceNode
 from hedgehog.protocol import errors
 from hedgehog.protocol.messages import Message, ack, io, analog, digital, motor, servo, process
+from pycreate2 import Create2
 from .client_backend import ClientBackend
 from .client_registry import EventHandler, ProcessUpdateHandler
 
@@ -303,3 +304,17 @@ def connect(endpoint='tcp://127.0.0.1:10789', emergency=None, service='hedgehog_
                 yield client
             except errors.EmergencyShutdown as ex:
                 print(ex)
+
+
+@contextmanager
+def connect_create(port='/dev/ttyUSB0', baud=57600):
+    create = Create2(port, baud=baud)
+    create.start()
+    yield create
+
+
+@contextmanager
+def connect_create2(port='/dev/ttyUSB0', baud=115200):
+    create = Create2(port, baud=baud)
+    create.start()
+    yield create
