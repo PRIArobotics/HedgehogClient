@@ -233,9 +233,6 @@ class __ProcessConfig(object):
     def __init__(self) -> None:
         self.clients = []
 
-        sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 1)
-        sys.stderr = os.fdopen(sys.stderr.fileno(), 'w', 1)
-
         def sigint_handler(signal, frame):
             self.shutdown()
 
