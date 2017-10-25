@@ -12,6 +12,7 @@ from hedgehog.utils.zmq.poller import Poller
 from hedgehog.utils.discovery.service_node import ServiceNode
 from hedgehog.protocol import errors
 from hedgehog.protocol.messages import Message, ack, io, analog, digital, motor, servo, process
+from pycreate2 import Create2
 from .client_backend import ClientBackend
 from .client_registry import EventHandler, ProcessUpdateHandler
 
@@ -232,9 +233,6 @@ class __ProcessConfig(object):
     def __init__(self) -> None:
         self.clients = []
 
-        sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 1)
-        sys.stderr = os.fdopen(sys.stderr.fileno(), 'w', 1)
-
         def sigint_handler(signal, frame):
             self.shutdown()
 
@@ -303,3 +301,20 @@ def connect(endpoint='tcp://127.0.0.1:10789', emergency=None, service='hedgehog_
                 yield client
             except errors.EmergencyShutdown as ex:
                 print(ex)
+
+
+@contextmanager
+def connect_create(port='/dev/ttyUSB0', baud=57600):
+    create = Create2(port, baud=baud)
+    create.start()
+    yield create
+    # TODO do proper cleanup instead of waiting for the GC
+    # del create does not seem to work, and create.__del__() raises an exception upon actual GC
+
+
+@contextmanager
+def connect_create2(port='/dev/ttyUSB0', baud=115200):
+    create = Create2(port, baud=baud)
+    create.start()
+    yield create
+    # TODO do proper cleanup instead of waiting for the GC
