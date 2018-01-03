@@ -1,6 +1,7 @@
 from typing import List
 
 import pytest
+from hedgehog.utils.test_utils import zmq_ctx
 
 import threading
 import traceback
@@ -15,14 +16,20 @@ from hedgehog.protocol.sockets import DealerRouterSocket
 from hedgehog.server import handlers, HedgehogServer
 from hedgehog.server.handlers.hardware import HardwareHandler
 from hedgehog.server.handlers.process import ProcessHandler
-from hedgehog.server.hardware.simulated import SimulatedHardwareAdapter
+from hedgehog.server.hardware import HardwareAdapter
+from hedgehog.server.hardware.mocked import MockedHardwareAdapter
 from hedgehog.utils import coroutine
 from hedgehog.utils.discovery.service_node import ServiceNode
 from hedgehog.utils.zmq.pipe import pipe
 
 
-def handler():
-    adapter = SimulatedHardwareAdapter()
+# Pytest fixtures
+zmq_ctx
+
+
+def handler(adapter: HardwareAdapter=None) -> handlers.HandlerCallbackDict:
+    if adapter is None:
+        adapter = MockedHardwareAdapter()
     return handlers.to_dict(HardwareHandler(adapter), ProcessHandler(adapter))
 
 
@@ -64,117 +71,108 @@ class HedgehogServerDummy(object):
 
 
 class TestHedgehogClient(object):
-    def test_connect(self):
-        with zmq.Context() as ctx:
-            @HedgehogServerDummy(self, ctx, 'inproc://controller')
-            def thread(server):
-                pass
+    def test_connect(self, zmq_ctx):
+        @HedgehogServerDummy(self, zmq_ctx, 'inproc://controller')
+        def thread(server):
+            pass
 
-            with HedgehogClient(ctx, 'inproc://controller') as client:
-                pass
+        with HedgehogClient(zmq_ctx, 'inproc://controller') as client:
+            pass
 
-            thread.join()
+        thread.join()
 
-    def test_single_client_thread(self):
-        with zmq.Context() as ctx:
-            @HedgehogServerDummy(self, ctx, 'inproc://controller')
-            def thread(server):
-                ident, msg = server.socket.recv_msg()
-                assert msg == analog.Request(0)
-                server.socket.send_msg(ident, analog.Reply(0, 0))
+    def test_single_client_thread(self, zmq_ctx):
+        @HedgehogServerDummy(self, zmq_ctx, 'inproc://controller')
+        def thread(server):
+            ident, msg = server.socket.recv_msg()
+            assert msg == analog.Request(0)
+            server.socket.send_msg(ident, analog.Reply(0, 0))
 
-            with HedgehogClient(ctx, 'inproc://controller') as client:
+        with HedgehogClient(zmq_ctx, 'inproc://controller') as client:
+            assert client.get_analog(0) == 0
+
+        thread.join()
+
+    def test_multiple_client_threads(self, zmq_ctx):
+        @HedgehogServerDummy(self, zmq_ctx, 'inproc://controller')
+        def thread(server):
+            ident1, msg = server.socket.recv_msg()
+            assert msg == analog.Request(0)
+            server.socket.send_msg(ident1, analog.Reply(0, 0))
+
+            ident2, msg = server.socket.recv_msg()
+            assert msg == analog.Request(0)
+            server.socket.send_msg(ident2, analog.Reply(0, 0))
+
+            assert ident1[0] == ident2[0]
+            assert ident1[1] != ident2[1]
+
+        with HedgehogClient(zmq_ctx, 'inproc://controller') as client:
+            assert client.get_analog(0) == 0
+
+            def spawned():
                 assert client.get_analog(0) == 0
 
-            thread.join()
+            client.spawn(spawned)
 
-    def test_multiple_client_threads(self):
-        with zmq.Context() as ctx:
-            @HedgehogServerDummy(self, ctx, 'inproc://controller')
-            def thread(server):
-                ident1, msg = server.socket.recv_msg()
-                assert msg == analog.Request(0)
-                server.socket.send_msg(ident1, analog.Reply(0, 0))
+        thread.join()
 
-                ident2, msg = server.socket.recv_msg()
-                assert msg == analog.Request(0)
-                server.socket.send_msg(ident2, analog.Reply(0, 0))
+    def test_unsupported(self, zmq_ctx):
+        @HedgehogServerDummy(self, zmq_ctx, 'inproc://controller')
+        def thread(server):
+            ident, msg = server.socket.recv_msg()
+            assert msg == analog.Request(0)
+            server.socket.send_msg(ident, ack.Acknowledgement(ack.UNSUPPORTED_COMMAND))
 
-                assert ident1[0] == ident2[0]
-                assert ident1[1] != ident2[1]
+        with HedgehogClient(zmq_ctx, 'inproc://controller') as client:
+            with pytest.raises(errors.UnsupportedCommandError):
+                client.get_analog(0)
 
-            with HedgehogClient(ctx, 'inproc://controller') as client:
-                assert client.get_analog(0) == 0
+        thread.join()
 
-                def spawned():
-                    assert client.get_analog(0) == 0
+    def test_shutdown(self, zmq_ctx):
+        @HedgehogServerDummy(self, zmq_ctx, 'inproc://controller')
+        def thread(server):
+            pass
 
-                client.spawn(spawned)
+        with HedgehogClient(zmq_ctx, 'inproc://controller') as client:
+            client.shutdown()
+            with pytest.raises(errors.FailedCommandError):
+                client.get_analog(0)
 
-            thread.join()
-
-    def test_unsupported(self):
-        with zmq.Context() as ctx:
-            @HedgehogServerDummy(self, ctx, 'inproc://controller')
-            def thread(server):
-                ident, msg = server.socket.recv_msg()
-                assert msg == analog.Request(0)
-                server.socket.send_msg(ident, ack.Acknowledgement(ack.UNSUPPORTED_COMMAND))
-
-            with HedgehogClient(ctx, 'inproc://controller') as client:
-                with pytest.raises(errors.UnsupportedCommandError):
-                    client.get_analog(0)
-
-            thread.join()
-
-    def test_shutdown(self):
-        with zmq.Context() as ctx:
-            @HedgehogServerDummy(self, ctx, 'inproc://controller')
-            def thread(server):
-                pass
-
-            with HedgehogClient(ctx, 'inproc://controller') as client:
-                client.shutdown()
-                with pytest.raises(errors.FailedCommandError):
-                    client.get_analog(0)
-
-            thread.join()
+        thread.join()
 
 
 class TestClientConvenienceFunctions(object):
-    def test_find_server(self):
-        with zmq.Context() as ctx:
-            with ServiceNode(ctx, "Hedgehog Server") as node:
-                SERVICE = 'hedgehog_server'
+    def test_find_server(self, zmq_ctx):
+        with ServiceNode(zmq_ctx, "Hedgehog Server") as node:
+            SERVICE = 'hedgehog_server'
 
-                node.join(SERVICE)
-                node.add_service(SERVICE, 10789)
+            node.join(SERVICE)
+            node.add_service(SERVICE, 10789)
 
-                server = find_server(ctx, SERVICE)
-                port = list(server.services[SERVICE])[0].rsplit(':', 1)[1]
+            server = find_server(zmq_ctx, SERVICE)
+            port = list(server.services[SERVICE])[0].rsplit(':', 1)[1]
 
-                assert port == "10789"
-
-    @pytest.mark.skip
-    def test_get_client(self):
-        with zmq.Context() as ctx:
-            with HedgehogServer(ctx, 'inproc://controller', handler()):
-                with get_client('inproc://controller', ctx=ctx) as client:
-                    assert client.get_analog(0) == 0
+            assert port == "10789"
 
     @pytest.mark.skip
-    def test_connect(self):
-        with zmq.Context() as ctx:
-            with HedgehogServer(ctx, 'inproc://controller', handler()):
-                with connect('inproc://controller', ctx=ctx, process_setup=False) as client:
-                    assert client.get_analog(0) == 0
+    def test_get_client(self, zmq_ctx):
+        with HedgehogServer(zmq_ctx, 'inproc://controller', handler()):
+            with get_client('inproc://controller', ctx=zmq_ctx) as client:
+                assert client.get_analog(0) == 0
+
+    @pytest.mark.skip
+    def test_connect(self, zmq_ctx):
+        with HedgehogServer(zmq_ctx, 'inproc://controller', handler()):
+            with connect('inproc://controller', ctx=zmq_ctx, process_setup=False) as client:
+                assert client.get_analog(0) == 0
 
     @unittest.skip
-    def test_connect_with_emergency_shutdown(self):
-        with zmq.Context() as ctx:
-            with HedgehogServer(ctx, 'inproc://controller', handler()):
-                with connect('inproc://controller', emergency=0, ctx=ctx, process_setup=False) as client:
-                    assert client.get_analog(0) == 0
+    def test_connect_with_emergency_shutdown(self, zmq_ctx):
+        with HedgehogServer(zmq_ctx, 'inproc://controller', handler()):
+            with connect('inproc://controller', emergency=0, ctx=zmq_ctx, process_setup=False) as client:
+                assert client.get_analog(0) == 0
 
 
 class command(object):
