@@ -34,10 +34,9 @@ def handler(adapter: HardwareAdapter=None) -> handlers.HandlerCallbackDict:
 
 
 class HedgehogServerDummy(object):
-    def __init__(self, testcase, ctx, endpoint):
+    def __init__(self, ctx, endpoint):
         self.socket = DealerRouterSocket(ctx, zmq.ROUTER, side=ServerSide)
         self.socket.bind(endpoint)
-        self.testcase = testcase
 
     def __call__(self, func):
         def target():
@@ -72,7 +71,7 @@ class HedgehogServerDummy(object):
 
 class TestHedgehogClient(object):
     def test_connect(self, zmq_ctx):
-        @HedgehogServerDummy(self, zmq_ctx, 'inproc://controller')
+        @HedgehogServerDummy(zmq_ctx, 'inproc://controller')
         def thread(server):
             pass
 
@@ -82,7 +81,7 @@ class TestHedgehogClient(object):
         thread.join()
 
     def test_single_client_thread(self, zmq_ctx):
-        @HedgehogServerDummy(self, zmq_ctx, 'inproc://controller')
+        @HedgehogServerDummy(zmq_ctx, 'inproc://controller')
         def thread(server):
             ident, msg = server.socket.recv_msg()
             assert msg == analog.Request(0)
@@ -94,7 +93,7 @@ class TestHedgehogClient(object):
         thread.join()
 
     def test_multiple_client_threads(self, zmq_ctx):
-        @HedgehogServerDummy(self, zmq_ctx, 'inproc://controller')
+        @HedgehogServerDummy(zmq_ctx, 'inproc://controller')
         def thread(server):
             ident1, msg = server.socket.recv_msg()
             assert msg == analog.Request(0)
@@ -118,7 +117,7 @@ class TestHedgehogClient(object):
         thread.join()
 
     def test_unsupported(self, zmq_ctx):
-        @HedgehogServerDummy(self, zmq_ctx, 'inproc://controller')
+        @HedgehogServerDummy(zmq_ctx, 'inproc://controller')
         def thread(server):
             ident, msg = server.socket.recv_msg()
             assert msg == analog.Request(0)
@@ -131,7 +130,7 @@ class TestHedgehogClient(object):
         thread.join()
 
     def test_shutdown(self, zmq_ctx):
-        @HedgehogServerDummy(self, zmq_ctx, 'inproc://controller')
+        @HedgehogServerDummy(zmq_ctx, 'inproc://controller')
         def thread(server):
             pass
 
@@ -191,7 +190,7 @@ class HedgehogAPITestCase(object):
 
     def run_test(self, *requests):
         with zmq.Context() as ctx:
-            @HedgehogServerDummy(self, ctx, 'inproc://controller')
+            @HedgehogServerDummy(ctx, 'inproc://controller')
             def thread(server):
                 for _, respond in requests:
                     respond(server)
