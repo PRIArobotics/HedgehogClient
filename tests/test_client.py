@@ -159,22 +159,18 @@ class TestClientConvenienceFunctions(object):
                 assert client.get_analog(0) == 0
 
 
-def command_test(command):
-    def decorator(func):
-        def decorated(self, zmq_ctx):
-            @contextmanager
-            def connect(*args, **kwargs):
-                with connect_dummy(zmq_ctx, partial(command, self), *args, client_class=self.client_class, **kwargs) as client:
-                    yield client
-
-            func(self, connect)
-        return decorated
-
-    return decorator
-
-
 class HedgehogAPITestCase(object):
     client_class = HedgehogClient
+
+    @pytest.fixture
+    def connect(self, zmq_ctx, command):
+        @contextmanager
+        def do_connect(*args, **kwargs):
+            with connect_dummy(zmq_ctx, partial(command, self), *args, client_class=self.client_class,
+                               **kwargs) as client:
+                yield client
+
+        return do_connect
 
     def io_action_input(self, server, port, pullup):
         ident, msg = server.recv_msg()
@@ -261,67 +257,67 @@ class HedgehogAPITestCase(object):
 
 
 class TestHedgehogClientAPI(HedgehogAPITestCase):
-    @command_test(HedgehogAPITestCase.io_action_input)
+    @pytest.mark.parametrize('command', [HedgehogAPITestCase.io_action_input])
     def test_set_input_state(self, connect):
         port, pullup = 0, False
         with connect(port, pullup) as client:
             assert client.set_input_state(port, pullup) is None
 
-    @command_test(HedgehogAPITestCase.io_command_request)
+    @pytest.mark.parametrize('command', [HedgehogAPITestCase.io_command_request])
     def test_get_io_config(self, connect):
         port, flags = 0, io.INPUT_FLOATING
         with connect(port, flags) as client:
             assert client.get_io_config(port) == flags
 
-    @command_test(HedgehogAPITestCase.analog_request)
+    @pytest.mark.parametrize('command', [HedgehogAPITestCase.analog_request])
     def test_get_analog(self, connect):
         port, value = 0, 0
         with connect(port, value) as client:
             assert client.get_analog(port) == value
 
-    @command_test(HedgehogAPITestCase.digital_request)
+    @pytest.mark.parametrize('command', [HedgehogAPITestCase.digital_request])
     def test_get_digital(self, connect):
         port, value = 0, False
         with connect(port, value) as client:
             assert client.get_digital(port) == value
 
-    @command_test(HedgehogAPITestCase.io_action_output)
+    @pytest.mark.parametrize('command', [HedgehogAPITestCase.io_action_output])
     def test_set_digital_output(self, connect):
         port, level = 0, False
         with connect(port, level) as client:
             assert client.set_digital_output(port, level) is None
 
-    @command_test(HedgehogAPITestCase.motor_action)
+    @pytest.mark.parametrize('command', [HedgehogAPITestCase.motor_action])
     def test_set_motor(self, connect):
         port, state, amount = 0, motor.POWER, 100
         with connect(port, state, amount) as client:
             assert client.set_motor(port, state, amount) is None
 
-    @command_test(HedgehogAPITestCase.motor_command_request)
+    @pytest.mark.parametrize('command', [HedgehogAPITestCase.motor_command_request])
     def test_get_motor_command(self, connect):
         port, state, amount = 0, motor.POWER, 0
         with connect(port, state, amount) as client:
             assert client.get_motor_command(port) == (state, amount)
 
-    @command_test(HedgehogAPITestCase.motor_state_request)
+    @pytest.mark.parametrize('command', [HedgehogAPITestCase.motor_state_request])
     def test_get_motor_state(self, connect):
         port, velocity, position = 0, 0, 0
         with connect(port, velocity, position) as client:
             assert client.get_motor_state(port) == (velocity, position)
 
-    @command_test(HedgehogAPITestCase.motor_set_position_action)
+    @pytest.mark.parametrize('command', [HedgehogAPITestCase.motor_set_position_action])
     def test_set_motor_position(self, connect):
         port, position = 0, 0
         with connect(port, position) as client:
             assert client.set_motor_position(port, position) is None
 
-    @command_test(HedgehogAPITestCase.servo_action)
+    @pytest.mark.parametrize('command', [HedgehogAPITestCase.servo_action])
     def test_set_servo(self, connect):
         port, active, position = 0, False, 0
         with connect(port, active, position) as client:
             assert client.set_servo(port, active, position) is None
 
-    @command_test(HedgehogAPITestCase.servo_command_request)
+    @pytest.mark.parametrize('command', [HedgehogAPITestCase.servo_command_request])
     def test_get_servo_command(self, connect):
         port, active, position = 0, False, None
         with connect(port, active, position) as client:
@@ -333,13 +329,13 @@ class TestHedgehogClientAPI(HedgehogAPITestCase):
 
 
 class TestHedgehogClientProcessAPI(HedgehogAPITestCase):
-    @command_test(HedgehogAPITestCase.execute_process_echo_asdf)
+    @pytest.mark.parametrize('command', [HedgehogAPITestCase.execute_process_echo_asdf])
     def test_execute_process_handle_nothing(self, connect):
         pid = 2345
         with connect(pid) as client:
             assert client.execute_process('echo', 'asdf') == pid
 
-    @command_test(HedgehogAPITestCase.execute_process_echo_asdf)
+    @pytest.mark.parametrize('command', [HedgehogAPITestCase.execute_process_echo_asdf])
     def test_execute_process_handle_exit(self, connect):
         pid = 2346
         with connect(pid) as client:
@@ -360,7 +356,7 @@ class TestHedgehogClientProcessAPI(HedgehogAPITestCase):
                 exit_a.wait()
                 exit_a.close()
 
-    @command_test(HedgehogAPITestCase.execute_process_echo_asdf)
+    @pytest.mark.parametrize('command', [HedgehogAPITestCase.execute_process_echo_asdf])
     def test_execute_process_handle_stream(self, connect):
         pid = 2347
         with connect(pid) as client:
@@ -388,7 +384,7 @@ class TestHedgehogClientProcessAPI(HedgehogAPITestCase):
                 exit_a.wait()
                 exit_a.close()
 
-    @command_test(HedgehogAPITestCase.execute_process_cat)
+    @pytest.mark.parametrize('command', [HedgehogAPITestCase.execute_process_cat])
     def test_execute_process_handle_input(self, connect):
         pid = 2348
         with connect(pid) as client:
@@ -403,85 +399,85 @@ class TestComponentGetterAPI(HedgehogAPITestCase):
 
     client_class = HedgehogComponentGetterClient
 
-    @command_test(HedgehogAPITestCase.io_action_input)
+    @pytest.mark.parametrize('command', [HedgehogAPITestCase.io_action_input])
     def test_test_analog_set_state(self, connect):
         port, pullup = 0, False
         with connect(port, pullup) as client:
             assert client.analog(port).set_state(pullup) is None
 
-    @command_test(HedgehogAPITestCase.io_command_request)
+    @pytest.mark.parametrize('command', [HedgehogAPITestCase.io_command_request])
     def test_analog_get_config(self, connect):
         port, flags = 0, io.INPUT_FLOATING
         with connect(port, flags) as client:
             assert client.analog(port).get_config() == flags
 
-    @command_test(HedgehogAPITestCase.io_action_input)
+    @pytest.mark.parametrize('command', [HedgehogAPITestCase.io_action_input])
     def test_test_digital_set_state(self, connect):
         port, pullup = 0, False
         with connect(port, pullup) as client:
             assert client.digital(port).set_state(pullup) is None
 
-    @command_test(HedgehogAPITestCase.io_command_request)
+    @pytest.mark.parametrize('command', [HedgehogAPITestCase.io_command_request])
     def test_digital_get_config(self, connect):
         port, flags = 0, io.INPUT_FLOATING
         with connect(port, flags) as client:
             assert client.digital(port).get_config() == flags
 
-    @command_test(HedgehogAPITestCase.analog_request)
+    @pytest.mark.parametrize('command', [HedgehogAPITestCase.analog_request])
     def test_analog_get(self, connect):
         port, value = 0, 0
         with connect(port, value) as client:
             assert client.analog(port).get() == value
 
-    @command_test(HedgehogAPITestCase.digital_request)
+    @pytest.mark.parametrize('command', [HedgehogAPITestCase.digital_request])
     def test_digital_get(self, connect):
         port, value = 0, False
         with connect(port, value) as client:
             assert client.digital(port).get() == value
 
-    @command_test(HedgehogAPITestCase.io_action_output)
+    @pytest.mark.parametrize('command', [HedgehogAPITestCase.io_action_output])
     def test_output_set(self, connect):
         port, level = 0, False
         with connect(port, level) as client:
             assert client.output(port).set(level) is None
 
-    @command_test(HedgehogAPITestCase.io_command_request)
+    @pytest.mark.parametrize('command', [HedgehogAPITestCase.io_command_request])
     def test_output_get_config(self, connect):
         port, flags = 0, io.OUTPUT_OFF
         with connect(port, flags) as client:
             assert client.output(port).get_config() == flags
 
-    @command_test(HedgehogAPITestCase.motor_action)
+    @pytest.mark.parametrize('command', [HedgehogAPITestCase.motor_action])
     def test_motor_set(self, connect):
         port, state, amount =0, motor.POWER, 100
         with connect(port, state, amount) as client:
             assert client.motor(port).set(state, amount) is None
 
-    @command_test(HedgehogAPITestCase.motor_command_request)
+    @pytest.mark.parametrize('command', [HedgehogAPITestCase.motor_command_request])
     def test_motor_get_command(self, connect):
         port, state, amount = 0, 0, 0
         with connect(port, state, amount) as client:
             assert client.motor(port).get_command() == (state, amount)
 
-    @command_test(HedgehogAPITestCase.motor_state_request)
+    @pytest.mark.parametrize('command', [HedgehogAPITestCase.motor_state_request])
     def test_motor_get_state(self, connect):
         port, velocity, position = 0, 0, 0
         with connect(port, velocity, position) as client:
             assert client.motor(port).get_state() == (velocity, position)
 
-    @command_test(HedgehogAPITestCase.motor_set_position_action)
+    @pytest.mark.parametrize('command', [HedgehogAPITestCase.motor_set_position_action])
     def test_motor_set_position(self, connect):
         port, position = 0, 0
         with connect(port, position) as client:
             assert client.motor(port).set_position(position) is None
 
-    @command_test(HedgehogAPITestCase.servo_action)
+    @pytest.mark.parametrize('command', [HedgehogAPITestCase.servo_action])
     def test_servo_set(self, connect):
         port, active, position = 0, False, 0
         with connect(port, active, position) as client:
             assert client.servo(port).set(active, position) is None
 
-    @command_test(HedgehogAPITestCase.servo_command_request, )
+    @pytest.mark.parametrize('command', [HedgehogAPITestCase.servo_command_request, ])
     def test_servo_get_command(self, connect):
         port, active, position = 0, False, None
         with connect(port, active, position) as client:
@@ -498,13 +494,13 @@ class TestComponentGetterProcessAPI(HedgehogAPITestCase):
 
     client_class = HedgehogComponentGetterClient
 
-    @command_test(HedgehogAPITestCase.execute_process_echo_asdf)
+    @pytest.mark.parametrize('command', [HedgehogAPITestCase.execute_process_echo_asdf])
     def test_execute_process_handle_nothing(self, connect):
         pid = 2345
         with connect(pid) as client:
             assert client.process('echo', 'asdf').pid == pid
 
-    @command_test(HedgehogAPITestCase.execute_process_echo_asdf)
+    @pytest.mark.parametrize('command', [HedgehogAPITestCase.execute_process_echo_asdf])
     def test_execute_process_handle_exit(self, connect):
         pid = 2346
         with connect(pid) as client:
@@ -525,7 +521,7 @@ class TestComponentGetterProcessAPI(HedgehogAPITestCase):
             exit_a.wait()
             exit_a.close()
 
-    @command_test(HedgehogAPITestCase.execute_process_echo_asdf)
+    @pytest.mark.parametrize('command', [HedgehogAPITestCase.execute_process_echo_asdf])
     def test_execute_process_handle_stream(self, connect):
         pid = 2347
         with connect(pid) as client:
@@ -553,7 +549,7 @@ class TestComponentGetterProcessAPI(HedgehogAPITestCase):
             exit_a.wait()
             exit_a.close()
 
-    @command_test(HedgehogAPITestCase.execute_process_cat)
+    @pytest.mark.parametrize('command', [HedgehogAPITestCase.execute_process_cat])
     def test_execute_process_handle_input(self, connect):
         pid = 2348
         with connect(pid) as client:
