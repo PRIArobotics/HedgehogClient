@@ -152,7 +152,7 @@ class TestClientConvenienceFunctions(object):
             with connect('inproc://controller', ctx=zmq_ctx, process_setup=False) as client:
                 assert client.get_analog(0) == 0
 
-    @unittest.skip
+    @pytest.mark.skip
     def test_connect_with_emergency_shutdown(self, zmq_ctx):
         with HedgehogServer(zmq_ctx, 'inproc://controller', handler()):
             with connect('inproc://controller', emergency=0, ctx=zmq_ctx, process_setup=False) as client:
