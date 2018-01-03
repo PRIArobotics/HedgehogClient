@@ -188,18 +188,17 @@ class command(object):
 class HedgehogAPITestCase(object):
     client_class = HedgehogClient
 
-    def run_test(self, *requests):
-        with zmq.Context() as ctx:
-            @HedgehogServerDummy(ctx, 'inproc://controller')
-            def thread(server):
-                for _, respond in requests:
-                    respond(server)
+    def run_test(self, zmq_ctx, *requests):
+        @HedgehogServerDummy(zmq_ctx, 'inproc://controller')
+        def thread(server):
+            for _, respond in requests:
+                respond(server)
 
-            with self.client_class(ctx, 'inproc://controller') as client:
-                for request, _ in requests:
-                    request(client)
+        with self.client_class(zmq_ctx, 'inproc://controller') as client:
+            for request, _ in requests:
+                request(client)
 
-            thread.join()
+        thread.join()
 
     @command
     def io_action_input(self, server, port, pullup):
@@ -319,8 +318,9 @@ class TestHedgehogClientAPI(HedgehogAPITestCase):
     def set_digital_output(self, client, port, level):
         assert client.set_digital_output(port, level) is None
 
-    def test_ios(self):
+    def test_ios(self, zmq_ctx):
         self.run_test(
+            zmq_ctx,
             self.set_input_state(0, False),
             self.get_io_config(0, io.INPUT_FLOATING),
             self.get_analog(0, 0),
@@ -344,8 +344,9 @@ class TestHedgehogClientAPI(HedgehogAPITestCase):
     def set_motor_position(self, client, port, position):
         assert client.set_motor_position(port, position) is None
 
-    def test_motor(self):
+    def test_motor(self, zmq_ctx):
         self.run_test(
+            zmq_ctx,
             self.set_motor(0, motor.POWER, 100),
             self.get_motor_command(0, motor.POWER, 0),
             self.get_motor_state(0, 0, 0),
@@ -360,8 +361,9 @@ class TestHedgehogClientAPI(HedgehogAPITestCase):
     def get_servo_command(self, client, port, active, position):
         assert client.get_servo_command(port) == (active, position)
 
-    def test_servo(self):
+    def test_servo(self, zmq_ctx):
         self.run_test(
+            zmq_ctx,
             self.set_servo(0, False, 0),
             self.get_servo_command(0, False, None),
             self.get_servo_command(0, True, 0),
@@ -424,8 +426,9 @@ class TestHedgehogClientProcessAPI(HedgehogAPITestCase):
         assert client.send_process_data(pid, b'asdf\n') is None
         assert client.send_process_data(pid) is None
 
-    def test_execute_process(self):
+    def test_execute_process(self, zmq_ctx):
         self.run_test(
+            zmq_ctx,
             self.execute_process_handle_nothing(2345),
             self.execute_process_handle_exit(2346),
             self.execute_process_handle_stream(2347),
@@ -471,8 +474,9 @@ class TestComponentGetterAPI(HedgehogAPITestCase):
     def output_get_config(self, client, port, flags):
         assert client.output(port).get_config() == flags
 
-    def test_ios(self):
+    def test_ios(self, zmq_ctx):
         self.run_test(
+            zmq_ctx,
             self.analog_set_state(0, False),
             self.analog_get_config(0, io.INPUT_FLOATING),
             self.digital_set_state(0, False),
@@ -499,8 +503,9 @@ class TestComponentGetterAPI(HedgehogAPITestCase):
     def motor_set_position(self, client, port, position):
         assert client.motor(port).set_position(position) is None
 
-    def test_motor(self):
+    def test_motor(self, zmq_ctx):
         self.run_test(
+            zmq_ctx,
             self.motor_set(0, motor.POWER, 100),
             self.motor_get_command(0, 0, 0),
             self.motor_get_state(0, 0, 0),
@@ -515,8 +520,9 @@ class TestComponentGetterAPI(HedgehogAPITestCase):
     def servo_get_command(self, client, port, active, position):
         assert client.servo(port).get_command() == (active, position)
 
-    def test_servo(self):
+    def test_servo(self, zmq_ctx):
         self.run_test(
+            zmq_ctx,
             self.servo_set(0, False, 0),
             self.servo_get_command(0, False, None),
             self.servo_get_command(0, True, 0),
@@ -585,8 +591,9 @@ class TestComponentGetterProcessAPI(HedgehogAPITestCase):
         assert process.send_data(b'asdf\n') is None
         assert process.send_data() is None
 
-    def test_execute_process(self):
+    def test_execute_process(self, zmq_ctx):
         self.run_test(
+            zmq_ctx,
             self.execute_process_handle_nothing(2345),
             self.execute_process_handle_exit(2346),
             self.execute_process_handle_stream(2347),
