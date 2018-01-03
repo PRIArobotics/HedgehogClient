@@ -336,33 +336,29 @@ class TestHedgehogClientProcessAPI(HedgehogAPITestCase):
             assert client.execute_process('echo', 'asdf') == pid
 
     @pytest.mark.parametrize('command', [HedgehogAPITestCase.execute_process_echo_asdf])
-    def test_execute_process_handle_exit(self, connect):
+    def test_execute_process_handle_exit(self, zmq_ctx, connect):
         pid = 2346
         with connect(pid) as client:
-            with zmq.Context() as ctx:
-                exit_a, exit_b = pipe(ctx)
-
+            exit_a, exit_b = pipe(zmq_ctx)
+            with exit_a, exit_b:
                 @coroutine
                 def on_exit():
                     _pid, exit_code = yield
                     assert _pid == pid
                     assert exit_code == 0
                     exit_b.signal()
-                    exit_b.close()
                     yield
 
                 assert client.execute_process('echo', 'asdf', on_exit=on_exit()) == pid
 
                 exit_a.wait()
-                exit_a.close()
 
     @pytest.mark.parametrize('command', [HedgehogAPITestCase.execute_process_echo_asdf])
-    def test_execute_process_handle_stream(self, connect):
+    def test_execute_process_handle_stream(self, zmq_ctx, connect):
         pid = 2347
         with connect(pid) as client:
-            with zmq.Context() as ctx:
-                exit_a, exit_b = pipe(ctx)
-
+            exit_a, exit_b = pipe(zmq_ctx)
+            with exit_a, exit_b:
                 @coroutine
                 def on_stdout():
                     _pid, fileno, chunk = yield
@@ -376,13 +372,11 @@ class TestHedgehogClientProcessAPI(HedgehogAPITestCase):
                     assert chunk == b''
 
                     exit_b.signal()
-                    exit_b.close()
                     yield
 
                 assert client.execute_process('echo', 'asdf', on_stdout=on_stdout()) == pid
 
                 exit_a.wait()
-                exit_a.close()
 
     @pytest.mark.parametrize('command', [HedgehogAPITestCase.execute_process_cat])
     def test_execute_process_handle_input(self, connect):
@@ -501,53 +495,47 @@ class TestComponentGetterProcessAPI(HedgehogAPITestCase):
             assert client.process('echo', 'asdf').pid == pid
 
     @pytest.mark.parametrize('command', [HedgehogAPITestCase.execute_process_echo_asdf])
-    def test_execute_process_handle_exit(self, connect):
+    def test_execute_process_handle_exit(self, zmq_ctx, connect):
         pid = 2346
         with connect(pid) as client:
-            ctx = zmq.Context()
-            exit_a, exit_b = pipe(ctx)
+            exit_a, exit_b = pipe(zmq_ctx)
+            with exit_a, exit_b:
+                @coroutine
+                def on_exit():
+                    _pid, exit_code = yield
+                    assert _pid == pid
+                    assert exit_code == 0
+                    exit_b.signal()
+                    yield
 
-            @coroutine
-            def on_exit():
-                _pid, exit_code = yield
-                assert _pid == pid
-                assert exit_code == 0
-                exit_b.signal()
-                exit_b.close()
-                yield
+                assert client.process('echo', 'asdf', on_exit=on_exit()).pid == pid
 
-            assert client.process('echo', 'asdf', on_exit=on_exit()).pid == pid
-
-            exit_a.wait()
-            exit_a.close()
+                exit_a.wait()
 
     @pytest.mark.parametrize('command', [HedgehogAPITestCase.execute_process_echo_asdf])
-    def test_execute_process_handle_stream(self, connect):
+    def test_execute_process_handle_stream(self, zmq_ctx, connect):
         pid = 2347
         with connect(pid) as client:
-            ctx = zmq.Context()
-            exit_a, exit_b = pipe(ctx)
+            exit_a, exit_b = pipe(zmq_ctx)
+            with exit_a, exit_b:
+                @coroutine
+                def on_stdout():
+                    _pid, fileno, chunk = yield
+                    assert _pid == pid
+                    assert fileno == process.STDOUT
+                    assert chunk == b'asdf\n'
 
-            @coroutine
-            def on_stdout():
-                _pid, fileno, chunk = yield
-                assert _pid == pid
-                assert fileno == process.STDOUT
-                assert chunk == b'asdf\n'
+                    _pid, fileno, chunk = yield
+                    assert _pid == pid
+                    assert fileno == process.STDOUT
+                    assert chunk == b''
 
-                _pid, fileno, chunk = yield
-                assert _pid == pid
-                assert fileno == process.STDOUT
-                assert chunk == b''
+                    exit_b.signal()
+                    yield
 
-                exit_b.signal()
-                exit_b.close()
-                yield
+                assert client.process('echo', 'asdf', on_stdout=on_stdout()).pid == pid
 
-            assert client.process('echo', 'asdf', on_stdout=on_stdout()).pid == pid
-
-            exit_a.wait()
-            exit_a.close()
+                exit_a.wait()
 
     @pytest.mark.parametrize('command', [HedgehogAPITestCase.execute_process_cat])
     def test_execute_process_handle_input(self, connect):
