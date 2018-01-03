@@ -25,7 +25,7 @@ class ClientBackend(object):
             self.endpoint = "inproc://frontend-%04x-%04x" % (random.randint(0, 0x10000), random.randint(0, 0x10000))
             try:
                 self.frontend.bind(self.endpoint)
-            except zmq.error.ZMQError as err:
+            except zmq.error.ZMQError as err:  # pragma: nocover
                 pass
             else:
                 break

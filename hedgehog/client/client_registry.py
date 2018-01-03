@@ -12,7 +12,7 @@ from hedgehog.utils.zmq.actor import CommandRegistry
 from hedgehog.utils.zmq.pipe import pipe
 
 from typing import TYPE_CHECKING
-if TYPE_CHECKING:
+if TYPE_CHECKING:  # pragma: nocover
     from . import client_backend
 
 _update_keys = {
@@ -64,10 +64,10 @@ class EventHandler(object):
     _is_shutdown = False
 
     def initialize(self, backend, reply: Message) -> None:
-        raise NotImplementedError()
+        raise NotImplementedError()  # pragma: nocover
 
     def update(self, update: Message) -> None:
-        raise NotImplementedError()
+        raise NotImplementedError()  # pragma: nocover
 
     def shutdown(self) -> None:
         if not self._is_shutdown:
@@ -75,7 +75,7 @@ class EventHandler(object):
             self._shutdown()
 
     def _shutdown(self) -> None:
-        raise NotImplementedError()
+        raise NotImplementedError()  # pragma: nocover
 
 
 # class MotorUpdateHandler(EventHandler):
@@ -169,7 +169,7 @@ class ProcessUpdateHandler(EventHandler):
                 self.stderr_handler.update(update)
         elif isinstance(update, process.ExitUpdate):
             self.stdout_handler.update(update)
-        else:
+        else:  # pragma: nocover
             assert False, update
 
     def _shutdown(self):
