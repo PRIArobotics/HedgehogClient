@@ -1,4 +1,4 @@
-from typing import List
+from typing import Callable, List
 
 import pytest
 from hedgehog.utils.test_utils import zmq_ctx
@@ -6,8 +6,9 @@ from hedgehog.utils.test_utils import zmq_ctx
 import threading
 import traceback
 import unittest
-
 import zmq
+from contextlib import contextmanager
+
 from hedgehog.client import HedgehogClient, find_server, get_client, connect
 from hedgehog.client.components import HedgehogComponentGetterMixin
 from hedgehog.protocol import errors, ServerSide
@@ -33,80 +34,71 @@ def handler(adapter: HardwareAdapter=None) -> handlers.HandlerCallbackDict:
     return handlers.to_dict(HardwareHandler(adapter), ProcessHandler(adapter))
 
 
-class HedgehogServerDummy(object):
-    def __init__(self, ctx, endpoint):
-        self.socket = DealerRouterSocket(ctx, zmq.ROUTER, side=ServerSide)
-        self.socket.bind(endpoint)
+@contextmanager
+def connect_dummy(ctx: zmq.Context, dummy: Callable[[DealerRouterSocket], None],
+                  endpoint: str='inproc://controller', client_class=HedgehogClient):
+    with DealerRouterSocket(ctx, zmq.ROUTER, side=ServerSide) as socket:
+        socket.bind(endpoint)
 
-    def __call__(self, func):
+        exception = None
+
         def target():
             try:
-                func(self)
+                dummy(socket)
 
-                ident, msgs = self.socket.recv_msgs()
+                ident, msgs = socket.recv_msgs()
                 _msgs = []  # type: List[Message]
                 _msgs.extend(motor.Action(port, motor.POWER, 0) for port in range(0, 4))
                 _msgs.extend(servo.Action(port, False, 0) for port in range(0, 4))
                 assert msgs == tuple(_msgs)
-                self.socket.send_msgs(ident, [ack.Acknowledgement()] * 8)
-
-                func.exc = None
+                socket.send_msgs(ident, [ack.Acknowledgement()] * 8)
             except Exception as exc:
-                traceback.print_exc()
-                func.exc = exc
-            finally:
-                self.socket.close()
+                nonlocal exception
+                exception = exc
 
         thread = threading.Thread(target=target, name=traceback.extract_stack(limit=2)[0].name)
         thread.start()
 
-        def join():
+        try:
+            with client_class(ctx, endpoint) as client:
+                yield client
+        finally:
             thread.join()
-            if func.exc is not None:
-                raise func.exc
-
-        func.join = join
-        return func
+            if exception is not None:
+                raise exception
 
 
 class TestHedgehogClient(object):
     def test_connect(self, zmq_ctx):
-        @HedgehogServerDummy(zmq_ctx, 'inproc://controller')
-        def thread(server):
+        def dummy(server):
             pass
 
-        with HedgehogClient(zmq_ctx, 'inproc://controller') as client:
+        with connect_dummy(zmq_ctx, dummy) as client:
             pass
-
-        thread.join()
 
     def test_single_client_thread(self, zmq_ctx):
-        @HedgehogServerDummy(zmq_ctx, 'inproc://controller')
-        def thread(server):
-            ident, msg = server.socket.recv_msg()
+        def dummy(server):
+            ident, msg = server.recv_msg()
             assert msg == analog.Request(0)
-            server.socket.send_msg(ident, analog.Reply(0, 0))
+            server.send_msg(ident, analog.Reply(0, 0))
 
-        with HedgehogClient(zmq_ctx, 'inproc://controller') as client:
+        with connect_dummy(zmq_ctx, dummy) as client:
             assert client.get_analog(0) == 0
 
-        thread.join()
-
     def test_multiple_client_threads(self, zmq_ctx):
-        @HedgehogServerDummy(zmq_ctx, 'inproc://controller')
-        def thread(server):
-            ident1, msg = server.socket.recv_msg()
+        def dummy(server):
+            ident1, msg = server.recv_msg()
             assert msg == analog.Request(0)
-            server.socket.send_msg(ident1, analog.Reply(0, 0))
+            server.send_msg(ident1, analog.Reply(0, 0))
 
-            ident2, msg = server.socket.recv_msg()
+            ident2, msg = server.recv_msg()
             assert msg == analog.Request(0)
-            server.socket.send_msg(ident2, analog.Reply(0, 0))
+            server.send_msg(ident2, analog.Reply(0, 0))
 
             assert ident1[0] == ident2[0]
             assert ident1[1] != ident2[1]
 
-        with HedgehogClient(zmq_ctx, 'inproc://controller') as client:
+        with connect_dummy(zmq_ctx, dummy) as client:
             assert client.get_analog(0) == 0
 
             def spawned():
@@ -114,32 +106,24 @@ class TestHedgehogClient(object):
 
             client.spawn(spawned)
 
-        thread.join()
-
     def test_unsupported(self, zmq_ctx):
-        @HedgehogServerDummy(zmq_ctx, 'inproc://controller')
-        def thread(server):
-            ident, msg = server.socket.recv_msg()
+        def dummy(server):
+            ident, msg = server.recv_msg()
             assert msg == analog.Request(0)
-            server.socket.send_msg(ident, ack.Acknowledgement(ack.UNSUPPORTED_COMMAND))
+            server.send_msg(ident, ack.Acknowledgement(ack.UNSUPPORTED_COMMAND))
 
-        with HedgehogClient(zmq_ctx, 'inproc://controller') as client:
+        with connect_dummy(zmq_ctx, dummy) as client:
             with pytest.raises(errors.UnsupportedCommandError):
                 client.get_analog(0)
 
-        thread.join()
-
     def test_shutdown(self, zmq_ctx):
-        @HedgehogServerDummy(zmq_ctx, 'inproc://controller')
-        def thread(server):
+        def dummy(server):
             pass
 
-        with HedgehogClient(zmq_ctx, 'inproc://controller') as client:
+        with connect_dummy(zmq_ctx, dummy) as client:
             client.shutdown()
             with pytest.raises(errors.FailedCommandError):
                 client.get_analog(0)
-
-        thread.join()
 
 
 class TestClientConvenienceFunctions(object):
@@ -189,112 +173,109 @@ class HedgehogAPITestCase(object):
     client_class = HedgehogClient
 
     def run_test(self, zmq_ctx, *requests):
-        @HedgehogServerDummy(zmq_ctx, 'inproc://controller')
-        def thread(server):
+        def dummy(server):
             for _, respond in requests:
                 respond(server)
 
-        with self.client_class(zmq_ctx, 'inproc://controller') as client:
+        with connect_dummy(zmq_ctx, dummy, client_class=self.client_class) as client:
             for request, _ in requests:
                 request(client)
 
-        thread.join()
-
     @command
     def io_action_input(self, server, port, pullup):
-        ident, msg = server.socket.recv_msg()
+        ident, msg = server.recv_msg()
         assert msg == io.Action(port, io.INPUT_PULLUP if pullup else io.INPUT_FLOATING)
-        server.socket.send_msg(ident, ack.Acknowledgement())
+        server.send_msg(ident, ack.Acknowledgement())
 
     @command
     def io_command_request(self, server, port, flags):
-        ident, msg = server.socket.recv_msg()
+        ident, msg = server.recv_msg()
         assert msg == io.CommandRequest(port)
-        server.socket.send_msg(ident, io.CommandReply(port, flags))
+        server.send_msg(ident, io.CommandReply(port, flags))
 
     @command
     def analog_request(self, server, port, value):
-        ident, msg = server.socket.recv_msg()
+        ident, msg = server.recv_msg()
         assert msg == analog.Request(port)
-        server.socket.send_msg(ident, analog.Reply(port, value))
+        server.send_msg(ident, analog.Reply(port, value))
 
     @command
     def digital_request(self, server, port, value):
-        ident, msg = server.socket.recv_msg()
+        ident, msg = server.recv_msg()
         assert msg == digital.Request(port)
-        server.socket.send_msg(ident, digital.Reply(port, value))
+        server.send_msg(ident, digital.Reply(port, value))
 
     @command
     def io_action_output(self, server, port, level):
-        ident, msg = server.socket.recv_msg()
+        ident, msg = server.recv_msg()
         assert msg == io.Action(port, io.OUTPUT_ON if level else io.OUTPUT_OFF)
-        server.socket.send_msg(ident, ack.Acknowledgement())
+        server.send_msg(ident, ack.Acknowledgement())
 
     @command
     def motor_action(self, server, port, state, amount):
-        ident, msg = server.socket.recv_msg()
+        ident, msg = server.recv_msg()
         assert msg == motor.Action(port, state, amount)
-        server.socket.send_msg(ident, ack.Acknowledgement())
+        server.send_msg(ident, ack.Acknowledgement())
 
     @command
     def motor_command_request(self, server, port, state, amount):
-        ident, msg = server.socket.recv_msg()
+        ident, msg = server.recv_msg()
         assert msg == motor.CommandRequest(port)
-        server.socket.send_msg(ident, motor.CommandReply(port, state, amount))
+        server.send_msg(ident, motor.CommandReply(port, state, amount))
 
     @command
     def motor_state_request(self, server, port, velocity, position):
-        ident, msg = server.socket.recv_msg()
+        ident, msg = server.recv_msg()
         assert msg == motor.StateRequest(port)
-        server.socket.send_msg(ident, motor.StateReply(port, velocity, position))
+        server.send_msg(ident, motor.StateReply(port, velocity, position))
 
     @command
     def motor_set_position_action(self, server, port, position):
-        ident, msg = server.socket.recv_msg()
+        ident, msg = server.recv_msg()
         assert msg == motor.SetPositionAction(port, position)
-        server.socket.send_msg(ident, ack.Acknowledgement())
+        server.send_msg(ident, ack.Acknowledgement())
 
     @command
     def servo_action(self, server, port, active, position):
-        ident, msg = server.socket.recv_msg()
+        ident, msg = server.recv_msg()
         assert msg == servo.Action(port, active, position)
-        server.socket.send_msg(ident, ack.Acknowledgement())
+        server.send_msg(ident, ack.Acknowledgement())
 
     @command
     def servo_command_request(self, server, port, active, position):
-        ident, msg = server.socket.recv_msg()
+        ident, msg = server.recv_msg()
         assert msg == servo.CommandRequest(port)
-        server.socket.send_msg(ident, servo.CommandReply(port, active, position))
+        server.send_msg(ident, servo.CommandReply(port, active, position))
 
     @command
     def execute_process_echo_asdf(self, server, pid):
-        ident, msg = server.socket.recv_msg()
+        ident, msg = server.recv_msg()
         assert msg == process.ExecuteAction('echo', 'asdf')
-        server.socket.send_msg(ident, process.ExecuteReply(pid))
-        server.socket.send_msg(ident, process.StreamUpdate(pid, process.STDOUT, b'asdf\n'))
-        server.socket.send_msg(ident, process.StreamUpdate(pid, process.STDOUT))
-        server.socket.send_msg(ident, process.StreamUpdate(pid, process.STDERR))
-        server.socket.send_msg(ident, process.ExitUpdate(pid, 0))
+        server.send_msg(ident, process.ExecuteReply(pid))
+        server.send_msg(ident, process.StreamUpdate(pid, process.STDOUT, b'asdf\n'))
+        server.send_msg(ident, process.StreamUpdate(pid, process.STDOUT))
+        server.send_msg(ident, process.StreamUpdate(pid, process.STDERR))
+        server.send_msg(ident, process.ExitUpdate(pid, 0))
 
     @command
     def execute_process_cat(self, server, pid):
-        ident, msg = server.socket.recv_msg()
+        ident, msg = server.recv_msg()
         assert msg == process.ExecuteAction('cat')
-        server.socket.send_msg(ident, process.ExecuteReply(pid))
+        server.send_msg(ident, process.ExecuteReply(pid))
 
         while True:
-            ident, msg = server.socket.recv_msg()
+            ident, msg = server.recv_msg()
             chunk = msg.chunk
             assert msg == process.StreamAction(pid, process.STDIN, chunk)
-            server.socket.send_msg(ident, ack.Acknowledgement())
+            server.send_msg(ident, ack.Acknowledgement())
 
-            server.socket.send_msg(ident, process.StreamUpdate(pid, process.STDOUT, chunk))
+            server.send_msg(ident, process.StreamUpdate(pid, process.STDOUT, chunk))
 
             if chunk == b'':
                 break
 
-        server.socket.send_msg(ident, process.StreamUpdate(pid, process.STDERR))
-        server.socket.send_msg(ident, process.ExitUpdate(pid, 0))
+        server.send_msg(ident, process.StreamUpdate(pid, process.STDERR))
+        server.send_msg(ident, process.ExitUpdate(pid, 0))
 
 
 class TestHedgehogClientAPI(HedgehogAPITestCase):
