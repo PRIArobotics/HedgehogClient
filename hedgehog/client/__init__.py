@@ -47,7 +47,7 @@ class HedgehogClient(object):
     def spawn(self, callback, *args, name=None, daemon=False, **kwargs) -> None:
         self.backend.spawn(callback, *args, name=name, daemon=daemon, **kwargs)
 
-    def shutdown(self) -> None:
+    def shutdown(self) -> bool:
         """
         Shuts down the client's backend.
         A shutdown may occur normally in any thread, or in an interrupt handler on the main thread. If this is invoked
