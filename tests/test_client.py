@@ -1,8 +1,9 @@
 from typing import Callable, List
 
 import pytest
-from hedgehog.utils.test_utils import zmq_ctx
+from hedgehog.utils.test_utils import zmq_ctx, zmq_aio_ctx
 
+import asyncio
 import threading
 import traceback
 import zmq
@@ -25,7 +26,7 @@ from hedgehog.utils.zmq.pipe import pipe
 
 
 # Pytest fixtures
-zmq_ctx
+zmq_ctx, zmq_aio_ctx
 
 
 def handler(adapter: HardwareAdapter=None) -> handlers.HandlerCallbackDict:
@@ -139,23 +140,38 @@ class TestClientConvenienceFunctions(object):
 
             assert port == "10789"
 
-    @pytest.mark.skip
-    def test_get_client(self, zmq_ctx):
-        with HedgehogServer(zmq_ctx, 'inproc://controller', handler()):
-            with get_client('inproc://controller', ctx=zmq_ctx) as client:
-                assert client.get_analog(0) == 0
+    @pytest.mark.asyncio
+    async def test_get_client(self, zmq_ctx, zmq_aio_ctx):
+        async with HedgehogServer(zmq_aio_ctx, 'tcp://127.0.0.1:0', handler()) as server:
+            endpoint = server.socket.get_string(zmq.LAST_ENDPOINT)
 
-    @pytest.mark.skip
-    def test_connect(self, zmq_ctx):
-        with HedgehogServer(zmq_ctx, 'inproc://controller', handler()):
-            with connect('inproc://controller', ctx=zmq_ctx, process_setup=False) as client:
-                assert client.get_analog(0) == 0
+            def do_test():
+                with get_client(endpoint, ctx=zmq_ctx) as client:
+                    assert client.get_analog(0) == 0
 
-    @pytest.mark.skip
-    def test_connect_with_emergency_shutdown(self, zmq_ctx):
-        with HedgehogServer(zmq_ctx, 'inproc://controller', handler()):
-            with connect('inproc://controller', emergency=0, ctx=zmq_ctx, process_setup=False) as client:
-                assert client.get_analog(0) == 0
+            await asyncio.get_event_loop().run_in_executor(None, do_test)
+
+    @pytest.mark.asyncio
+    async def test_connect(self, zmq_ctx, zmq_aio_ctx):
+        async with HedgehogServer(zmq_aio_ctx, 'tcp://127.0.0.1:0', handler()) as server:
+            endpoint = server.socket.get_string(zmq.LAST_ENDPOINT)
+
+            def do_test():
+                with connect(endpoint, ctx=zmq_ctx, process_setup=False) as client:
+                    assert client.get_analog(0) == 0
+
+            await asyncio.get_event_loop().run_in_executor(None, do_test)
+
+    @pytest.mark.asyncio
+    async def test_connect_with_emergency_shutdown(self, zmq_ctx, zmq_aio_ctx):
+        async with HedgehogServer(zmq_aio_ctx, 'tcp://127.0.0.1:0', handler()) as server:
+            endpoint = server.socket.get_string(zmq.LAST_ENDPOINT)
+
+            def do_test():
+                with connect(endpoint, emergency=0, ctx=zmq_ctx, process_setup=False) as client:
+                    assert client.get_analog(0) == 0
+
+            await asyncio.get_event_loop().run_in_executor(None, do_test)
 
 
 class HedgehogAPITestCase(object):
