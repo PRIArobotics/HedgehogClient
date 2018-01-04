@@ -63,11 +63,11 @@ class EventHandler(object):
     events = None  # type: Set[Tuple[Type[Message], Any]]
     _is_shutdown = False
 
-    def __init__(self):
-        self._handle = self.handle()
+    def __init__(self, *args, **kwargs):
+        self._handle = self.handle(*args, **kwargs)
         self._handle.send(None)
 
-    def handle(self) -> None:
+    def handle(self, *args, **kwargs) -> None:
         if False:  # pragma: nocover
             yield
 
@@ -118,12 +118,9 @@ class EventHandler(object):
 
 class ProcessUpdateHandler(EventHandler):
     def __init__(self, on_stdout, on_stderr, on_exit):
-        super(ProcessUpdateHandler, self).__init__()
-        self.on_stdout = on_stdout
-        self.on_stderr = on_stderr
-        self.on_exit = on_exit
+        super(ProcessUpdateHandler, self).__init__(on_stdout, on_stderr, on_exit)
 
-    def handle(self):
+    def handle(self, on_stdout, on_stderr, on_exit):
         # initialize
         backend, reply = yield
 
@@ -137,8 +134,8 @@ class ProcessUpdateHandler(EventHandler):
         def handle_stdout_exit():
             while True:
                 update, = yield
-                if self.on_stdout is not None:
-                    self.on_stdout(pid, update.fileno, update.chunk)
+                if on_stdout is not None:
+                    on_stdout(pid, update.fileno, update.chunk)
                 if update.chunk == b'':
                     break
 
@@ -146,8 +143,8 @@ class ProcessUpdateHandler(EventHandler):
 
             exit_a.wait()
             exit_a.close()
-            if self.on_exit is not None:
-                self.on_exit(pid, update.exit_code)
+            if on_exit is not None:
+                on_exit(pid, update.exit_code)
 
             stdout_handler.shutdown()
             yield
@@ -156,8 +153,8 @@ class ProcessUpdateHandler(EventHandler):
         def handle_stderr():
             while True:
                 update, = yield
-                if self.on_stderr is not None:
-                    self.on_stderr(pid, update.fileno, update.chunk)
+                if on_stderr is not None:
+                    on_stderr(pid, update.fileno, update.chunk)
                 if update.chunk == b'':
                     break
 
