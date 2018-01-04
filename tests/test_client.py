@@ -5,7 +5,6 @@ from hedgehog.utils.test_utils import zmq_ctx
 
 import threading
 import traceback
-import unittest
 import zmq
 from contextlib import contextmanager
 from functools import partial
