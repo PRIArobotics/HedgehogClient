@@ -63,19 +63,29 @@ class EventHandler(object):
     events = None  # type: Set[Tuple[Type[Message], Any]]
     _is_shutdown = False
 
+    def __init__(self):
+        self._handle = self.handle()
+        self._handle.send(None)
+
+    def handle(self) -> None:
+        if False:  # pragma: nocover
+            yield
+
     def initialize(self, backend, reply: Message) -> None:
-        raise NotImplementedError()  # pragma: nocover
+        self._handle.send((backend, reply))
 
     def update(self, update: Message) -> None:
-        raise NotImplementedError()  # pragma: nocover
+        self._handle.send(update)
 
     def shutdown(self) -> None:
         if not self._is_shutdown:
             self._is_shutdown = True
-            self._shutdown()
-
-    def _shutdown(self) -> None:
-        raise NotImplementedError()  # pragma: nocover
+            try:
+                self._handle.send(None)
+            except StopIteration:
+                pass
+            else:
+                raise RuntimeError("expected StopIteration")
 
 
 # class MotorUpdateHandler(EventHandler):
@@ -107,19 +117,19 @@ class EventHandler(object):
 
 
 class ProcessUpdateHandler(EventHandler):
-    pid = None
-    stdout_handler = None
-    stderr_handler = None
-
     def __init__(self, on_stdout, on_stderr, on_exit):
+        super(ProcessUpdateHandler, self).__init__()
         self.on_stdout = on_stdout
         self.on_stderr = on_stderr
         self.on_exit = on_exit
 
-    def initialize(self, backend, reply):
-        self.pid = reply.pid
-        self.events = {(process.StreamUpdate, self.pid),
-                       (process.ExitUpdate, self.pid)}
+    def handle(self):
+        # initialize
+        backend, reply = yield
+
+        pid = reply.pid
+        self.events = {(process.StreamUpdate, pid),
+                       (process.ExitUpdate, pid)}
 
         exit_a, exit_b = pipe(backend.ctx)
 
@@ -128,7 +138,7 @@ class ProcessUpdateHandler(EventHandler):
             while True:
                 update, = yield
                 if self.on_stdout is not None:
-                    self.on_stdout(self.pid, update.fileno, update.chunk)
+                    self.on_stdout(pid, update.fileno, update.chunk)
                 if update.chunk == b'':
                     break
 
@@ -137,9 +147,9 @@ class ProcessUpdateHandler(EventHandler):
             exit_a.wait()
             exit_a.close()
             if self.on_exit is not None:
-                self.on_exit(self.pid, update.exit_code)
+                self.on_exit(pid, update.exit_code)
 
-            self.stdout_handler.shutdown()
+            stdout_handler.shutdown()
             yield
 
         @coroutine
@@ -147,34 +157,39 @@ class ProcessUpdateHandler(EventHandler):
             while True:
                 update, = yield
                 if self.on_stderr is not None:
-                    self.on_stderr(self.pid, update.fileno, update.chunk)
+                    self.on_stderr(pid, update.fileno, update.chunk)
                 if update.chunk == b'':
                     break
 
             exit_b.signal()
             exit_b.close()
-            self.stderr_handler.shutdown()
+            stderr_handler.shutdown()
             yield
 
-        self.stdout_handler = _EventHandler(backend, handle_stdout_exit())
-        self.stderr_handler = _EventHandler(backend, handle_stderr())
-        backend.spawn(self.stdout_handler.run, async=True)
-        backend.spawn(self.stderr_handler.run, async=True)
+        stdout_handler = _EventHandler(backend, handle_stdout_exit())
+        stderr_handler = _EventHandler(backend, handle_stderr())
+        backend.spawn(stdout_handler.run, async=True)
+        backend.spawn(stderr_handler.run, async=True)
 
-    def update(self, update):
-        if isinstance(update, process.StreamUpdate):
-            if update.fileno == process.STDOUT:
-                self.stdout_handler.update(update)
-            else:
-                self.stderr_handler.update(update)
-        elif isinstance(update, process.ExitUpdate):
-            self.stdout_handler.update(update)
-        else:  # pragma: nocover
-            assert False, update
+        while True:
+            # update
+            update = yield
+            if update is None:
+                break
 
-    def _shutdown(self):
-        self.stdout_handler.shutdown()
-        self.stderr_handler.shutdown()
+            if isinstance(update, process.StreamUpdate):
+                if update.fileno == process.STDOUT:
+                    stdout_handler.update(update)
+                else:
+                    stderr_handler.update(update)
+            elif isinstance(update, process.ExitUpdate):
+                stdout_handler.update(update)
+            else:  # pragma: nocover
+                assert False, update
+
+        # shutdown
+        stdout_handler.shutdown()
+        stderr_handler.shutdown()
 
 
 _IDLE = 0
