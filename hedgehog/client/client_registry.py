@@ -26,81 +26,63 @@ def _update_key(update: Message) -> Tuple[Type[Message], Any]:
     return cls, _update_keys[cls](update)
 
 
-class _EventHandler(object):
-    def __init__(self, backend, handler: Generator[None, Message, None]) -> None:
-        self.pipe, self._pipe = pipe(backend.ctx)
-        self.backend = backend
-        self.handler = handler
-
-    def __enter__(self):
-        self.spawn()
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.shutdown()
-
-    def spawn(self):
-        self.backend.spawn(self.run, async=True)
-
-    def run(self) -> None:
-        registry = CommandRegistry()
-        running = True
-
-        @registry.command(b'UPDATE')
-        def handle_update(update_raw) -> None:
-            update = ReplyMsg.parse(update_raw)
-            try:
-                self.handler.send(update)
-            except StopIteration:
-                nonlocal running
-                running = False
-
-        @registry.command(b'$TERM')
-        def handle_term() -> None:
-            self.handler.close()
-            nonlocal running
-            running = False
-
-        with self._pipe:
-            try:
-                next(self.handler)
-                while running:
-                    registry.handle(self._pipe.recv_multipart())
-            finally:
-                self._pipe.send(b'$TERM')
-
-    @property
-    def is_shutdown(self):
-        if self.pipe.closed:
-            return True
-
-        try:
-            msg = self.pipe.recv(zmq.NOBLOCK)
-        except zmq.Again:
-            return False
-        else:
-            assert msg == b'$TERM'
-            self.pipe.close()
-            return True
-
-    def update(self, update: Message) -> None:
-        if not self.is_shutdown:
-            self.pipe.send_multipart([b'UPDATE', ReplyMsg.serialize(update)])
-
-    def shutdown(self) -> None:
-        if not self.is_shutdown:
-            self.pipe.send(b'$TERM')
-            self.pipe.recv_expect(b'$TERM')
-            self.pipe.close()
-
-
 @contextmanager
 def _event_handler(backend, handler: Generator[None, Message, None]):
     def gen():
-        with _EventHandler(backend, handler) as _handler:
+        pipe_a, pipe_b = pipe(backend.ctx)
+
+        def is_shutdown():
+            if pipe_a.closed:
+                return True
+
+            try:
+                msg = pipe_a.recv(zmq.NOBLOCK)
+            except zmq.Again:
+                return False
+            else:
+                assert msg == b'$TERM'
+                pipe_a.close()
+                return True
+
+        def run() -> None:
+            registry = CommandRegistry()
+            running = True
+
+            @registry.command(b'UPDATE')
+            def handle_update(update_raw) -> None:
+                update = ReplyMsg.parse(update_raw)
+                try:
+                    handler.send(update)
+                except StopIteration:
+                    nonlocal running
+                    running = False
+
+            @registry.command(b'$TERM')
+            def handle_term() -> None:
+                handler.close()
+                nonlocal running
+                running = False
+
+            with pipe_b:
+                try:
+                    next(handler)
+                    while running:
+                        registry.handle(pipe_b.recv_multipart())
+                finally:
+                    pipe_b.send(b'$TERM')
+
+        backend.spawn(run, async=True)
+        try:
             while True:
-                update = yield
-                _handler.update(update)
+                update = yield  # type: Message
+                if is_shutdown():
+                    break
+                pipe_a.send_multipart([b'UPDATE', ReplyMsg.serialize(update)])
+        finally:
+            if not is_shutdown():
+                pipe_a.send(b'$TERM')
+                pipe_a.recv_expect(b'$TERM')
+                pipe_a.close()
 
     _handler = gen()
     try:
@@ -108,6 +90,7 @@ def _event_handler(backend, handler: Generator[None, Message, None]):
         yield _handler
     finally:
         _handler.close()
+
 
 EventHandler = Generator[Set[Tuple[Type[Message], Any]],
                          Union[Tuple['client_backend.ClientBackend', Message], Message, None],
