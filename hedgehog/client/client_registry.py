@@ -50,11 +50,13 @@ class _EventHandler(object):
             nonlocal running
             running = False
 
-        next(self.handler)
-        while running:
-            registry.handle(self._pipe.recv_multipart())
-        self._pipe.send(b'$TERM')
-        self._pipe.close()
+        with self._pipe:
+            try:
+                next(self.handler)
+                while running:
+                    registry.handle(self._pipe.recv_multipart())
+            finally:
+                self._pipe.send(b'$TERM')
 
     @property
     def is_shutdown(self):
@@ -125,30 +127,31 @@ def process_handler(on_stdout, on_stderr, on_exit):
     exit_a, exit_b = pipe(backend.ctx)
 
     def handle_stdout_exit():
-        while True:
+        with exit_a:
+            while True:
+                update = yield
+                if on_stdout is not None:
+                    on_stdout(pid, update.fileno, update.chunk)
+                if update.chunk == b'':
+                    break
+
             update = yield
-            if on_stdout is not None:
-                on_stdout(pid, update.fileno, update.chunk)
-            if update.chunk == b'':
-                break
 
-        update = yield
-
-        exit_a.wait()
-        exit_a.close()
-        if on_exit is not None:
-            on_exit(pid, update.exit_code)
+            exit_a.wait()
+            if on_exit is not None:
+                on_exit(pid, update.exit_code)
 
     def handle_stderr():
-        while True:
-            update = yield
-            if on_stderr is not None:
-                on_stderr(pid, update.fileno, update.chunk)
-            if update.chunk == b'':
-                break
-
-        exit_b.signal()
-        exit_b.close()
+        with exit_b:
+            try:
+                while True:
+                    update = yield
+                    if on_stderr is not None:
+                        on_stderr(pid, update.fileno, update.chunk)
+                    if update.chunk == b'':
+                        break
+            finally:
+                exit_b.signal()
 
     stdout_handler = _EventHandler(backend, handle_stdout_exit())
     stderr_handler = _EventHandler(backend, handle_stderr())
