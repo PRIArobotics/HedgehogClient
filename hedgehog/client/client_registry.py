@@ -69,7 +69,7 @@ def _shutdown(handler: EventHandler):
         handler.send(None)
     except StopIteration:
         pass
-    else:
+    else:  # pragma: nocover
         raise RuntimeError("expected StopIteration")
 
 
