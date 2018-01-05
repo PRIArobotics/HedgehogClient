@@ -27,7 +27,7 @@ def _update_key(update: Message) -> Tuple[Type[Message], Any]:
 
 
 class _EventHandler(object):
-    def __init__(self, backend, handler: Generator[None, Any, None]) -> None:
+    def __init__(self, backend, handler: Generator[None, Message, None]) -> None:
         self.pipe, self._pipe = pipe(backend.ctx)
         self.backend = backend
         self.handler = handler
@@ -48,7 +48,7 @@ class _EventHandler(object):
 
         @registry.command(b'UPDATE')
         def handle_update(update_raw) -> None:
-            update = ReplyMsg.parse(update_raw)  # type: Message
+            update = ReplyMsg.parse(update_raw)
             try:
                 self.handler.send(update)
             except StopIteration:
