@@ -164,10 +164,8 @@ def process_handler(on_stdout, on_stderr, on_exit):
             finally:
                 exit_b.signal()
 
-    stdout_handler = _EventHandler(backend, handle_stdout_exit())
-    stderr_handler = _EventHandler(backend, handle_stderr())
-
-    with stdout_handler, stderr_handler:
+    with _EventHandler(backend, handle_stdout_exit()) as stdout_handler,\
+            _EventHandler(backend, handle_stderr()) as stderr_handler:
         # update
         update = yield events
         while True:
