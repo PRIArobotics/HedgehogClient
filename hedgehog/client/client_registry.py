@@ -94,6 +94,21 @@ class _EventHandler(object):
             self.pipe.close()
 
 
+@contextmanager
+def _event_handler(backend, handler: Generator[None, Message, None]):
+    def gen():
+        with _EventHandler(backend, handler) as _handler:
+            while True:
+                update = yield
+                _handler.update(update)
+
+    _handler = gen()
+    try:
+        next(_handler)
+        yield _handler
+    finally:
+        _handler.close()
+
 EventHandler = Generator[Set[Tuple[Type[Message], Any]],
                          Union[Tuple['client_backend.ClientBackend', Message], Message, None],
                          None]
@@ -164,18 +179,18 @@ def process_handler(on_stdout, on_stderr, on_exit):
             finally:
                 exit_b.signal()
 
-    with _EventHandler(backend, handle_stdout_exit()) as stdout_handler,\
-            _EventHandler(backend, handle_stderr()) as stderr_handler:
+    with _event_handler(backend, handle_stdout_exit()) as stdout_handler, \
+            _event_handler(backend, handle_stderr()) as stderr_handler:
         # update
         update = yield events
         while True:
             if isinstance(update, process.StreamUpdate):
                 if update.fileno == process.STDOUT:
-                    stdout_handler.update(update)
+                    stdout_handler.send(update)
                 else:
-                    stderr_handler.update(update)
+                    stderr_handler.send(update)
             elif isinstance(update, process.ExitUpdate):
-                stdout_handler.update(update)
+                stdout_handler.send(update)
             else:  # pragma: nocover
                 assert False, update
 
