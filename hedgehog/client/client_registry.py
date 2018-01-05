@@ -29,7 +29,11 @@ def _update_key(update: Message) -> Tuple[Type[Message], Any]:
 class _EventHandler(object):
     def __init__(self, backend, handler: Generator[None, Any, None]) -> None:
         self.pipe, self._pipe = pipe(backend.ctx)
+        self.backend = backend
         self.handler = handler
+
+    def spawn(self):
+        self.backend.spawn(self.run, async=True)
 
     def run(self) -> None:
         registry = CommandRegistry()
@@ -155,8 +159,8 @@ def process_handler(on_stdout, on_stderr, on_exit):
 
     stdout_handler = _EventHandler(backend, handle_stdout_exit())
     stderr_handler = _EventHandler(backend, handle_stderr())
-    backend.spawn(stdout_handler.run, async=True)
-    backend.spawn(stderr_handler.run, async=True)
+    stdout_handler.spawn()
+    stderr_handler.spawn()
 
     try:
         # update
