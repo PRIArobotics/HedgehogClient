@@ -7,7 +7,6 @@ from queue import Queue
 from hedgehog.protocol import errors
 from hedgehog.protocol.messages import ReplyMsg, Message, ack, motor, process
 from hedgehog.protocol.sockets import ReqSocket
-from hedgehog.utils import coroutine
 from hedgehog.utils.zmq.actor import CommandRegistry
 from hedgehog.utils.zmq.pipe import pipe
 
@@ -28,7 +27,7 @@ def _update_key(update: Message) -> Tuple[Type[Message], Any]:
 
 
 class _EventHandler(object):
-    def __init__(self, backend, handler: Callable[[Message], None]) -> None:
+    def __init__(self, backend, handler: Generator[None, Any, None]) -> None:
         self.pipe, self._pipe = pipe(backend.ctx)
         self.handler = handler
 
@@ -39,23 +38,46 @@ class _EventHandler(object):
         @registry.command(b'UPDATE')
         def handle_update(update_raw) -> None:
             update = ReplyMsg.parse(update_raw)  # type: Message
-            self.handler(update)
+            try:
+                self.handler.send(update)
+            except StopIteration:
+                nonlocal running
+                running = False
 
         @registry.command(b'$TERM')
         def handle_term() -> None:
+            self.handler.close()
             nonlocal running
             running = False
 
+        next(self.handler)
         while running:
             registry.handle(self._pipe.recv_multipart())
+        self._pipe.send(b'$TERM')
         self._pipe.close()
 
+    @property
+    def is_shutdown(self):
+        if self.pipe.closed:
+            return True
+
+        try:
+            msg = self.pipe.recv(zmq.NOBLOCK)
+        except zmq.Again:
+            return False
+        else:
+            assert msg == b'$TERM'
+            self.pipe.close()
+            return True
+
     def update(self, update: Message) -> None:
-        self.pipe.send_multipart([b'UPDATE', ReplyMsg.serialize(update)])
+        if not self.is_shutdown:
+            self.pipe.send_multipart([b'UPDATE', ReplyMsg.serialize(update)])
 
     def shutdown(self) -> None:
-        if not self.pipe.closed:
+        if not self.is_shutdown:
             self.pipe.send(b'$TERM')
+            self.pipe.recv_expect(b'$TERM')
             self.pipe.close()
 
 
@@ -102,29 +124,24 @@ def process_handler(on_stdout, on_stderr, on_exit):
 
     exit_a, exit_b = pipe(backend.ctx)
 
-    @coroutine
     def handle_stdout_exit():
         while True:
-            update, = yield
+            update = yield
             if on_stdout is not None:
                 on_stdout(pid, update.fileno, update.chunk)
             if update.chunk == b'':
                 break
 
-        update, = yield
+        update = yield
 
         exit_a.wait()
         exit_a.close()
         if on_exit is not None:
             on_exit(pid, update.exit_code)
 
-        stdout_handler.shutdown()
-        yield
-
-    @coroutine
     def handle_stderr():
         while True:
-            update, = yield
+            update = yield
             if on_stderr is not None:
                 on_stderr(pid, update.fileno, update.chunk)
             if update.chunk == b'':
@@ -132,8 +149,6 @@ def process_handler(on_stdout, on_stderr, on_exit):
 
         exit_b.signal()
         exit_b.close()
-        stderr_handler.shutdown()
-        yield
 
     stdout_handler = _EventHandler(backend, handle_stdout_exit())
     stderr_handler = _EventHandler(backend, handle_stderr())
