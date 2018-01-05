@@ -32,6 +32,13 @@ class _EventHandler(object):
         self.backend = backend
         self.handler = handler
 
+    def __enter__(self):
+        self.spawn()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.shutdown()
+
     def spawn(self):
         self.backend.spawn(self.run, async=True)
 
@@ -159,10 +166,8 @@ def process_handler(on_stdout, on_stderr, on_exit):
 
     stdout_handler = _EventHandler(backend, handle_stdout_exit())
     stderr_handler = _EventHandler(backend, handle_stderr())
-    stdout_handler.spawn()
-    stderr_handler.spawn()
 
-    try:
+    with stdout_handler, stderr_handler:
         # update
         update = yield events
         while True:
@@ -177,10 +182,6 @@ def process_handler(on_stdout, on_stderr, on_exit):
                 assert False, update
 
             update = yield
-    finally:
-        # shutdown
-        stdout_handler.shutdown()
-        stderr_handler.shutdown()
 
 
 _IDLE = 0
