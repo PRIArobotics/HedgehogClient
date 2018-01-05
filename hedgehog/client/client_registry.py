@@ -268,7 +268,7 @@ class ClientRegistry(object):
                 handler.close()
                 continue
 
-            handler.send(None)
+            next(handler)
             events = handler.send((backend, reply))
             for event in events:
                 if event in self._handlers:
