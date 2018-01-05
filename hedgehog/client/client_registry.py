@@ -64,15 +64,6 @@ EventHandler = Generator[Set[Tuple[Type[Message], Any]],
                          None]
 
 
-def _shutdown(handler: EventHandler):
-    try:
-        handler.send(None)
-    except StopIteration:
-        pass
-    else:  # pragma: nocover
-        raise RuntimeError("expected StopIteration")
-
-
 # class MotorUpdateHandler(EventHandler):
 #     port = None  # type: int
 #     handler = None  # type: _EventHandler
@@ -149,24 +140,25 @@ def process_handler(on_stdout, on_stderr, on_exit):
     backend.spawn(stdout_handler.run, async=True)
     backend.spawn(stderr_handler.run, async=True)
 
-    # update
-    update = yield events
-    while update is not None:
-        if isinstance(update, process.StreamUpdate):
-            if update.fileno == process.STDOUT:
+    try:
+        # update
+        update = yield events
+        while True:
+            if isinstance(update, process.StreamUpdate):
+                if update.fileno == process.STDOUT:
+                    stdout_handler.update(update)
+                else:
+                    stderr_handler.update(update)
+            elif isinstance(update, process.ExitUpdate):
                 stdout_handler.update(update)
-            else:
-                stderr_handler.update(update)
-        elif isinstance(update, process.ExitUpdate):
-            stdout_handler.update(update)
-        else:  # pragma: nocover
-            assert False, update
+            else:  # pragma: nocover
+                assert False, update
 
-        update = yield
-
-    # shutdown
-    stdout_handler.shutdown()
-    stderr_handler.shutdown()
+            update = yield
+    finally:
+        # shutdown
+        stdout_handler.shutdown()
+        stderr_handler.shutdown()
 
 
 _IDLE = 0
@@ -280,7 +272,7 @@ class ClientRegistry(object):
             events = handler.send((backend, reply))
             for event in events:
                 if event in self._handlers:
-                    _shutdown(self._handlers[event])
+                    self._handlers[event].close()
                 self._handlers[event] = handler
 
     def handle_async(self, update: Message) -> None:
@@ -290,4 +282,4 @@ class ClientRegistry(object):
 
     def shutdown(self) -> None:
         for handler in self._handlers.values():
-            _shutdown(handler)
+            handler.close()
