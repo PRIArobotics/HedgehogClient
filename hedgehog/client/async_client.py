@@ -26,13 +26,13 @@ class AsyncClient(Actor):
         self.endpoint = endpoint
         self.socket = None  # type: DealerRouterSocket
         self._commands = asyncio.Queue()
-        self._futures = []  # type: List[asyncio.Future]
+        self._futures = []  # type: List[Tuple[Sequence[EventHandler], asyncio.Future]]
 
     async def _handle_commands(self):
         while True:
-            msgs, future = await self._commands.get()
-            self._futures.append(future)
-            await self.socket.send_msgs((), msgs)
+            cmds, future = await self._commands.get()
+            self._futures.append((tuple(handler for _, handler in cmds), future))
+            await self.socket.send_msgs((), tuple(msg for msg, _ in cmds))
 
     async def _handle_updates(self):
         while True:
@@ -48,7 +48,7 @@ class AsyncClient(Actor):
                     pass
             else:
                 # handle synchronous messages
-                future = self._futures.pop(0)
+                handlers, future = self._futures.pop(0)
                 future.set_result(msgs)
                 # TODO register any kind of update handling
 
@@ -69,8 +69,8 @@ class AsyncClient(Actor):
                 commands.cancel()
                 updates.cancel()
 
-    async def send(self, msg: Message) -> Optional[Message]:
-        reply, = await self.send_multipart(msg)
+    async def send(self, msg: Message, handler: EventHandler=None) -> Optional[Message]:
+        reply, = await self.send_multipart((msg, handler))
         if isinstance(reply, ack.Acknowledgement):
             if reply.code != ack.OK:
                 raise errors.error(reply.code, reply.message)
@@ -78,9 +78,9 @@ class AsyncClient(Actor):
         else:
             return reply
 
-    async def send_multipart(self, *msgs: Message) -> Any:
+    async def send_multipart(self, *cmds: Tuple[Message, EventHandler]) -> Any:
         future = asyncio.Future()
-        await self._commands.put((msgs, future))
+        await self._commands.put((cmds, future))
         return await future
 
     async def set_input_state(self, port: int, pullup: bool) -> None:
@@ -160,7 +160,7 @@ class AsyncClient(Actor):
             handler = process_handler(on_stdout, on_stderr, on_exit)
         else:
             handler = None
-        response = cast(process.ExecuteReply, await self.send(process.ExecuteAction(*args, working_dir=working_dir)))
+        response = cast(process.ExecuteReply, await self.send(process.ExecuteAction(*args, working_dir=working_dir), handler))
         return response.pid
 
     async def signal_process(self, pid: int, signal: int=2) -> None:
