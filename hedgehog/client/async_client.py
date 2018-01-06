@@ -1,4 +1,4 @@
-from typing import cast, Any, AsyncIterator, Callable, List, Optional, Sequence, Tuple
+from typing import cast, Any, AsyncIterator, Awaitable, Callable, List, Optional, Sequence, Tuple
 
 import asyncio
 import logging
@@ -27,6 +27,20 @@ class AsyncClient(Actor):
         self.socket = None  # type: DealerRouterSocket
         self._commands = asyncio.Queue()
         self._futures = []  # type: List[Tuple[Sequence[EventHandler], asyncio.Future]]
+
+        self._open_count = 0
+
+    async def __aenter__(self):
+        self._open_count += 1
+        if self._open_count == 1:
+            return await super(AsyncClient, self).__aenter__()
+        else:
+            return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        self._open_count -= 1
+        if self._open_count == 0:
+            await super(AsyncClient, self).__aexit__(exc_type, exc_val, exc_tb)
 
     async def _handle_commands(self):
         while True:
@@ -66,6 +80,18 @@ class AsyncClient(Actor):
             finally:
                 commands.cancel()
                 updates.cancel()
+
+    async def spawn(self, awaitable: Awaitable[Any]) -> asyncio.Task:
+        future = asyncio.Future()
+
+        async def task():
+            async with self:
+                future.set_result(None)
+                await awaitable
+
+        result = asyncio.ensure_future(task())
+        await future
+        return result
 
     async def send(self, msg: Message, handler: EventHandler=None) -> Optional[Message]:
         reply, = await self.send_multipart((msg, handler))
