@@ -79,10 +79,11 @@ async def test_concurrent_commands(client: AsyncClient, hardware_adapter: Mocked
     assert await task_b is True
 
 
+@pytest.mark.asyncio
 @pytest.mark.parametrize('hardware_adapter', [HardwareAdapter()])
 async def test_unsupported(client: AsyncClient):
     with pytest.raises(errors.UnsupportedCommandError):
-        client.get_analog(0)
+        await client.get_analog(0)
 
 
 class Commands(object):
