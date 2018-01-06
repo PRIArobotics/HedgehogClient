@@ -19,7 +19,7 @@ from hedgehog.server.handlers.hardware import HardwareHandler
 from hedgehog.server.handlers.process import ProcessHandler
 from hedgehog.server.hardware import HardwareAdapter
 from hedgehog.server.hardware.mocked import MockedHardwareAdapter
-
+from hedgehog.utils.asyncio import pipe
 
 # Pytest fixtures
 event_loop, zmq_ctx, zmq_aio_ctx
@@ -287,49 +287,48 @@ class TestHedgehogClientProcessAPI(HedgehogAPITestCase):
         async with connect(pid) as client:
             assert await client.execute_process('echo', 'asdf') == pid
 
-    # @pytest.mark.asyncio
-    # @pytest.mark.parametrize('command', [Commands.execute_process_echo_asdf])
-    # async def test_execute_process_handle_exit(self, zmq_ctx, connect):
-    #     pid = 2346
-    #     with connect(pid) as client:
-    #         exit_a, exit_b = pipe(zmq_ctx)
-    #         with exit_a, exit_b:
-    #             @coroutine
-    #             def on_exit():
-    #                 _pid, exit_code = yield
-    #                 assert _pid == pid
-    #                 assert exit_code == 0
-    #                 exit_b.signal()
-    #                 yield
-    #
-    #             assert client.execute_process('echo', 'asdf', on_exit=on_exit()) == pid
-    #
-    #             exit_a.wait()
-    #
-    # @pytest.mark.parametrize('command', [HedgehogAPITestCase.execute_process_echo_asdf])
-    # def test_execute_process_handle_stream(self, zmq_ctx, connect):
-    #     pid = 2347
-    #     with connect(pid) as client:
-    #         exit_a, exit_b = pipe(zmq_ctx)
-    #         with exit_a, exit_b:
-    #             @coroutine
-    #             def on_stdout():
-    #                 _pid, fileno, chunk = yield
-    #                 assert _pid == pid
-    #                 assert fileno == process.STDOUT
-    #                 assert chunk == b'asdf\n'
-    #
-    #                 _pid, fileno, chunk = yield
-    #                 assert _pid == pid
-    #                 assert fileno == process.STDOUT
-    #                 assert chunk == b''
-    #
-    #                 exit_b.signal()
-    #                 yield
-    #
-    #             assert client.execute_process('echo', 'asdf', on_stdout=on_stdout()) == pid
-    #
-    #             exit_a.wait()
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize('command', [Commands.execute_process_echo_asdf])
+    async def test_execute_process_handle_exit(self, connect):
+        pid = 2346
+        async with connect(pid) as client:
+            exit_a, exit_b = pipe()
+
+            async def on_exit(_pid, exit_code):
+                assert _pid == pid
+                assert exit_code == 0
+                await exit_b.send(None)
+
+            assert await client.execute_process('echo', 'asdf', on_exit=on_exit) == pid
+
+            await exit_a.recv()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize('command', [Commands.execute_process_echo_asdf])
+    async def test_execute_process_handle_stream(self, connect):
+        pid = 2347
+        async with connect(pid) as client:
+            exit_a, exit_b = pipe()
+
+            counter = 0
+
+            async def on_stdout(_pid, fileno, chunk):
+                nonlocal counter
+
+                expect = [
+                    (pid, process.STDOUT, b'asdf\n'),
+                    (pid, process.STDOUT, b''),
+                ]
+
+                assert (_pid, fileno, chunk) == expect[counter]
+                counter += 1
+
+                if counter == len(expect):
+                    await exit_b.send(None)
+
+            assert await client.execute_process('echo', 'asdf', on_stdout=on_stdout) == pid
+
+            await exit_a.recv()
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize('command', [Commands.execute_process_cat])

@@ -13,8 +13,7 @@ from hedgehog.protocol import errors, ClientSide
 from hedgehog.protocol.async_sockets import ReqSocket, DealerRouterSocket
 from hedgehog.protocol.messages import Message, ack, io, analog, digital, motor, servo, process
 from pycreate2 import Create2
-from .client_backend import ClientBackend
-from .client_registry import EventHandler, process_handler
+from .async_handlers import EventHandler, HandlerRegistry, process_handler
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +23,7 @@ class AsyncClient(Actor):
         super(AsyncClient, self).__init__()
         self.ctx = ctx
         self.endpoint = endpoint
+        self.registry = HandlerRegistry()
         self.socket = None  # type: DealerRouterSocket
         self._commands = asyncio.Queue()
         self._futures = []  # type: List[Tuple[Sequence[EventHandler], asyncio.Future]]
@@ -43,14 +43,12 @@ class AsyncClient(Actor):
             # or all messages are asynchronous updates
             if msgs[0].is_async:
                 # handle asynchronous messages
-                for msg in msgs:
-                    # TODO do any kind of update handling
-                    pass
+                self.registry.handle_async(msgs)
             else:
                 # handle synchronous messages
                 handlers, future = self._futures.pop(0)
                 future.set_result(msgs)
-                # TODO register any kind of update handling
+                self.registry.register(handlers, msgs)
 
     async def run(self, cmd_pipe, evt_pipe) -> None:
         # TODO having to explicitly use empty headers is ugly
