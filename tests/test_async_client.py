@@ -63,9 +63,14 @@ async def connect_dummy(ctx: zmq.asyncio.Context, dummy: Callable[[DealerRouterS
 
 
 @pytest.fixture
-async def client(zmq_aio_ctx: zmq.asyncio.Context, hardware_adapter: HardwareAdapter):
-    async with HedgehogServer(zmq_aio_ctx, 'inproc://controller', handler(hardware_adapter)),\
-            AsyncClient(zmq_aio_ctx, 'inproc://controller') as client:
+async def server(zmq_aio_ctx: zmq.asyncio.Context, hardware_adapter: HardwareAdapter):
+    async with HedgehogServer(zmq_aio_ctx, 'inproc://controller', handler(hardware_adapter)) as server:
+        yield 'inproc://controller'
+
+
+@pytest.fixture
+async def client(zmq_aio_ctx: zmq.asyncio.Context, server: str):
+    async with AsyncClient(zmq_aio_ctx, server) as client:
         yield client
 
 
