@@ -7,7 +7,7 @@ import signal
 import sys
 import time
 import zmq.asyncio
-from contextlib import contextmanager, suppress
+from aiostream.context_utils import async_context_manager
 from hedgehog.utils.asyncio import Actor, stream_from_queue
 from hedgehog.protocol import errors, ClientSide
 from hedgehog.protocol.async_sockets import ReqSocket, DealerRouterSocket
@@ -31,6 +31,7 @@ class AsyncClient(Actor):
         self._futures = []  # type: List[Tuple[Sequence[Optional[EventHandler]], asyncio.Future]]
 
         self._open_count = 0
+        self._daemon_count = 0
         self._shutdown = False
 
     async def __aenter__(self):
@@ -43,10 +44,24 @@ class AsyncClient(Actor):
             return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        if self._open_count == 1:
+        if self._open_count - 1 == self._daemon_count:
             await self.shutdown()
+        if self._open_count == 1:
             await super(AsyncClient, self).__aexit__(exc_type, exc_val, exc_tb)
         self._open_count -= 1
+
+    @property
+    @async_context_manager
+    async def daemon(self):
+        if self._open_count == 0:
+            raise RuntimeError("The client is not active, first use of the client must not be daemon")
+
+        async with self as ret:
+            self._daemon_count += 1
+            try:
+                yield ret
+            finally:
+                self._daemon_count -= 1
 
     async def _handle_commands(self):
         while True:
@@ -106,11 +121,11 @@ class AsyncClient(Actor):
                 commands.cancel()
                 updates.cancel()
 
-    async def spawn(self, awaitable: Awaitable[Any]) -> asyncio.Task:
+    async def spawn(self, awaitable: Awaitable[Any], daemon: bool=False) -> asyncio.Task:
         future = asyncio.Future()
 
         async def task():
-            async with self:
+            async with (self.daemon if daemon else self):
                 future.set_result(None)
                 await awaitable
 

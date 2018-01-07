@@ -135,6 +135,20 @@ async def test_shutdown_context(client: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_daemon_context(zmq_aio_ctx: zmq.asyncio.Context, server: str):
+    async with AsyncClient(zmq_aio_ctx, server) as client:
+        async def do_something():
+            assert await client.get_analog(0) == 0
+            await asyncio.sleep(2)
+            with pytest.raises(errors.HedgehogCommandError):
+                await client.get_analog(0)
+
+        task = await client.spawn(do_something(), daemon=True)
+        await asyncio.sleep(1)
+    await task
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize('hardware_adapter', [HardwareAdapter()])
 async def test_unsupported(client: AsyncClient):
     with pytest.raises(errors.UnsupportedCommandError):
