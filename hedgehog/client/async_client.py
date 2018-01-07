@@ -103,6 +103,8 @@ class AsyncClient(Actor):
             return reply
 
     async def send_multipart(self, *cmds: Tuple[Message, EventHandler]) -> Any:
+        if self._open_count == 0:
+            raise RuntimeError("The client is not active, use `async with client:`")
         future = asyncio.Future()
         await self._commands.put((cmds, future))
         return await future

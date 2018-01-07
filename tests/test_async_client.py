@@ -102,6 +102,20 @@ async def test_overlapping_contexts(zmq_aio_ctx: zmq.asyncio.Context, server: st
 
 
 @pytest.mark.asyncio
+async def test_inactive_context(zmq_aio_ctx: zmq.asyncio.Context, server: str):
+    client = AsyncClient(zmq_aio_ctx, server)
+
+    with pytest.raises(RuntimeError):
+        await client.get_analog(0)
+
+    async with client:
+        assert await client.get_analog(0) == 0
+
+    with pytest.raises(RuntimeError):
+        await client.get_analog(0)
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize('hardware_adapter', [HardwareAdapter()])
 async def test_unsupported(client: AsyncClient):
     with pytest.raises(errors.UnsupportedCommandError):
