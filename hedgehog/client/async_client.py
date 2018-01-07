@@ -1,4 +1,4 @@
-from typing import cast, Any, AsyncIterator, Awaitable, Callable, List, Optional, Sequence, Tuple
+from typing import cast, Any, Awaitable, Callable, List, Optional, Sequence, Tuple
 
 import asyncio
 import logging
@@ -26,7 +26,7 @@ class AsyncClient(Actor):
         self.registry = HandlerRegistry()
         self.socket = None  # type: DealerRouterSocket
         self._commands = asyncio.Queue()
-        self._futures = []  # type: List[Tuple[Sequence[EventHandler], asyncio.Future]]
+        self._futures = []  # type: List[Tuple[Sequence[Optional[EventHandler]], asyncio.Future]]
 
         self._open_count = 0
 
