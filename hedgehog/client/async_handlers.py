@@ -103,3 +103,4 @@ class HandlerRegistry(object):
     def shutdown(self) -> None:
         for handler in self._handlers.values():
             handler.close()
+        self._handlers.clear()

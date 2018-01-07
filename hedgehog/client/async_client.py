@@ -19,6 +19,8 @@ logger = logging.getLogger(__name__)
 
 
 class AsyncClient(Actor):
+    _SHUTDOWN = object()
+
     def __init__(self, ctx: zmq.asyncio.Context, endpoint: str='tcp://127.0.0.1:10789') -> None:
         super(AsyncClient, self).__init__()
         self.ctx = ctx
@@ -29,8 +31,11 @@ class AsyncClient(Actor):
         self._futures = []  # type: List[Tuple[Sequence[Optional[EventHandler]], asyncio.Future]]
 
         self._open_count = 0
+        self._shutdown = False
 
     async def __aenter__(self):
+        if self._shutdown:
+            raise RuntimeError("Cannot reuse a client after it was once closed")
         self._open_count += 1
         if self._open_count == 1:
             return await super(AsyncClient, self).__aenter__()
@@ -38,15 +43,35 @@ class AsyncClient(Actor):
             return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        self._open_count -= 1
-        if self._open_count == 0:
+        if self._open_count == 1:
+            await self.shutdown()
             await super(AsyncClient, self).__aexit__(exc_type, exc_val, exc_tb)
+        self._open_count -= 1
 
     async def _handle_commands(self):
         while True:
             cmds, future = await self._commands.get()
-            self._futures.append((tuple(handler for _, handler in cmds), future))
-            await self.socket.send_msgs((), tuple(msg for msg, _ in cmds))
+            if cmds is AsyncClient._SHUTDOWN:
+                if self._shutdown:
+                    future.set_result(None)
+                else:
+                    self._shutdown = True
+                    self.registry.shutdown()
+
+                    msgs = []  # type: List[Message]
+                    msgs.extend(motor.Action(port, motor.POWER, 0) for port in range(0, 4))
+                    msgs.extend(servo.Action(port, False, 0) for port in range(0, 4))
+                    self._futures.append((tuple(None for _ in msgs), future))
+                    await self.socket.send_msgs((), msgs)
+            elif self._shutdown:
+                replies = [ack.Acknowledgement(ack.FAILED_COMMAND, "Emergency Shutdown activated") for _ in cmds]
+                future.set_result(replies)
+                for _, handler in cmds:
+                    if handler is not None:
+                        handler.close()
+            else:
+                self._futures.append((tuple(handler for _, handler in cmds), future))
+                await self.socket.send_msgs((), tuple(msg for msg, _ in cmds))
 
     async def _handle_updates(self):
         while True:
@@ -108,6 +133,13 @@ class AsyncClient(Actor):
         future = asyncio.Future()
         await self._commands.put((cmds, future))
         return await future
+
+    async def shutdown(self) -> None:
+        if self._open_count == 0:
+            raise RuntimeError("The client is not active, use `async with client:`")
+        future = asyncio.Future()
+        await self._commands.put((AsyncClient._SHUTDOWN, future))
+        await future
 
     async def set_input_state(self, port: int, pullup: bool) -> None:
         await self.send(io.Action(port, io.INPUT_PULLUP if pullup else io.INPUT_FLOATING))

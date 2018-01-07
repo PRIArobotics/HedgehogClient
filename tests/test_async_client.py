@@ -45,13 +45,12 @@ async def connect_dummy(ctx: zmq.asyncio.Context, dummy: Callable[[DealerRouterS
         async def target():
             await dummy(socket, *args, **kwargs)
 
-            # TODO
-            # ident, msgs = await socket.recv_msgs()
-            # _msgs = []  # type: List[Message]
-            # _msgs.extend(motor.Action(port, motor.POWER, 0) for port in range(0, 4))
-            # _msgs.extend(servo.Action(port, False, 0) for port in range(0, 4))
-            # assert msgs == tuple(_msgs)
-            # socket.send_msgs(ident, [ack.Acknowledgement()] * 8)
+            ident, msgs = await socket.recv_msgs()
+            _msgs = []  # type: List[Message]
+            _msgs.extend(motor.Action(port, motor.POWER, 0) for port in range(0, 4))
+            _msgs.extend(servo.Action(port, False, 0) for port in range(0, 4))
+            assert msgs == tuple(_msgs)
+            await socket.send_msgs(ident, [ack.Acknowledgement()] * 8)
 
         task = asyncio.ensure_future(target())
         try:
@@ -113,6 +112,26 @@ async def test_inactive_context(zmq_aio_ctx: zmq.asyncio.Context, server: str):
 
     with pytest.raises(RuntimeError):
         await client.get_analog(0)
+
+
+@pytest.mark.asyncio
+async def test_shutdown_context(client: AsyncClient):
+    async def do_something():
+        assert await client.get_analog(0) == 0
+        await asyncio.sleep(2)
+        with pytest.raises(errors.HedgehogCommandError):
+            await client.get_analog(0)
+
+    task = await client.spawn(do_something())
+
+    assert await client.get_analog(0) == 0
+    await asyncio.sleep(1)
+    await client.shutdown()
+
+    with pytest.raises(errors.HedgehogCommandError):
+        await client.get_analog(0)
+
+    await task
 
 
 @pytest.mark.asyncio
