@@ -19,6 +19,9 @@ class SyncClient(object):
         self.endpoint = endpoint
         self.client = None  # type: AsyncClient
 
+    def _call(self, coro: Coroutine[None, None, T]) -> T:
+        return self._loop.run_coroutine(coro).result()
+
     def _enter(self, daemon=False):
         if self.client is None:
             async def create_client():
@@ -27,19 +30,19 @@ class SyncClient(object):
             type(self._loop).__enter__(self._loop)
             try:
                 self.client = self._loop.run_coroutine(create_client()).result()
-                self._loop.run_coroutine(self.client._aenter(daemon=daemon)).result()
+                self._call(self.client._aenter(daemon=daemon))
                 return self
             except:
                 self.client = None
                 if not type(self._loop).__exit__(self._loop, *sys.exc_info()):
                     raise
         else:
-            self._loop.run_coroutine(self.client._aenter(daemon=daemon)).result()
+            self._call(self.client._aenter(daemon=daemon))
             return self
 
     def _exit(self, exc_type, exc_val, exc_tb, daemon=False):
         try:
-            suppress = self._loop.run_coroutine(self.client._aexit(exc_type, exc_val, exc_tb, daemon=daemon)).result()
+            suppress = self._call(self.client._aexit(exc_type, exc_val, exc_tb, daemon=daemon))
         except:
             if not self.client.is_closed:
                 raise
@@ -79,16 +82,13 @@ class SyncClient(object):
     def is_closed(self):
         return self.client is not None and self.client.is_closed
 
-    def _call(self, coro: Coroutine[None, None, T]) -> T:
-        return self._loop.run_coroutine(coro).result()
-
-    def _check_active(self):
+    def _call_safe(self, coro_fun):
         if self.client is None or self.client.is_closed:
             raise RuntimeError("The client is not active, use `async with client:`")
+        return self._call(coro_fun())
 
     def shutdown(self) -> None:
-        self._check_active()
-        self._call(self.client.shutdown())
+        self._call_safe(lambda: self.client.shutdown())
 
     def spawn(self, callback, *args, name=None, daemon=False, **kwargs) -> threading.Thread:
         future = concurrent.futures.Future()
@@ -104,10 +104,8 @@ class SyncClient(object):
         return result
 
     def set_input_state(self, port: int, pullup: bool) -> None:
-        self._check_active()
-        self._call(self.client.set_input_state(port, pullup))
+        self._call_safe(lambda: self.client.set_input_state(port, pullup))
 
     def get_analog(self, port: int) -> int:
-        self._check_active()
-        return self._call(self.client.get_analog(port))
+        return self._call_safe(lambda: self.client.get_analog(port))
 

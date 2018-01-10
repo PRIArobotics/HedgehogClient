@@ -146,18 +146,6 @@ class AsyncClient(Actor):
                 except asyncio.CancelledError:
                     pass
 
-    async def spawn(self, awaitable: Awaitable[Any], daemon: bool=False) -> asyncio.Task:
-        future = asyncio.Future()
-
-        async def task():
-            async with (self.daemon if daemon else self):
-                future.set_result(None)
-                await awaitable
-
-        result = asyncio.ensure_future(task())
-        await future
-        return result
-
     async def send(self, msg: Message, handler: EventHandler=None) -> Optional[Message]:
         reply, = await self.send_multipart((msg, handler))
         if isinstance(reply, ack.Acknowledgement):
@@ -180,6 +168,18 @@ class AsyncClient(Actor):
         future = asyncio.Future()
         await self._commands.put((AsyncClient._SHUTDOWN, future))
         await future
+
+    async def spawn(self, awaitable: Awaitable[Any], daemon: bool=False) -> asyncio.Task:
+        future = asyncio.Future()
+
+        async def task():
+            async with (self.daemon if daemon else self):
+                future.set_result(None)
+                await awaitable
+
+        result = asyncio.ensure_future(task())
+        await future
+        return result
 
     async def set_input_state(self, port: int, pullup: bool) -> None:
         await self.send(io.Action(port, io.INPUT_PULLUP if pullup else io.INPUT_FLOATING))
