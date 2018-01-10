@@ -34,34 +34,47 @@ class AsyncClient(Actor):
         self._daemon_count = 0
         self._shutdown = False
 
-    async def __aenter__(self):
+    async def _aenter(self, daemon=False):
+        if daemon and self._open_count == 0:
+            raise RuntimeError("The client is not active, first use of the client must not be daemon")
         if self._shutdown:
-            raise RuntimeError("Cannot reuse a client after it was once closed")
-        self._open_count += 1
-        if self._open_count == 1:
-            return await super(AsyncClient, self).__aenter__()
-        else:
-            return self
+            raise RuntimeError("Cannot reuse a client after it was once shut down")
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        self._open_count += 1
+        if daemon:
+            self._daemon_count += 1
+
+        if self._open_count == 1:
+            await super(AsyncClient, self).__aenter__()
+        return self
+
+    async def _aexit(self, exc_type, exc_val, exc_tb, daemon=False):
+        if daemon:
+            self._daemon_count -= 1
+
         if self._open_count - 1 == self._daemon_count:
             await self.shutdown()
         if self._open_count == 1:
             await super(AsyncClient, self).__aexit__(exc_type, exc_val, exc_tb)
         self._open_count -= 1
 
+    async def __aenter__(self):
+        return await self._aenter()
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await self._aexit(exc_type, exc_val, exc_tb)
+
     @property
     @async_context_manager
     async def daemon(self):
-        if self._open_count == 0:
-            raise RuntimeError("The client is not active, first use of the client must not be daemon")
-
-        async with self as ret:
-            self._daemon_count += 1
-            try:
-                yield ret
-            finally:
-                self._daemon_count -= 1
+        ret = await self._aenter(daemon=True)
+        try:
+            yield ret
+        except:
+            if not await self._aexit(*sys.exc_info(), daemon=True):
+                raise
+        else:
+            await self._aexit(None, None, None, daemon=True)
 
     async def _handle_commands(self):
         while True:
