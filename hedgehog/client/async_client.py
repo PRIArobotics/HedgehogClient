@@ -76,6 +76,14 @@ class AsyncClient(Actor):
         else:
             await self._aexit(None, None, None, daemon=True)
 
+    @property
+    def is_shutdown(self):
+        return self._shutdown
+
+    @property
+    def is_closed(self):
+        return self.is_shutdown and self._open_count == 0
+
     async def _handle_commands(self):
         while True:
             cmds, future = await self._commands.get()
@@ -132,7 +140,15 @@ class AsyncClient(Actor):
                         break
             finally:
                 commands.cancel()
+                try:
+                    await commands
+                except asyncio.CancelledError:
+                    pass
                 updates.cancel()
+                try:
+                    await updates
+                except asyncio.CancelledError:
+                    pass
 
     async def spawn(self, awaitable: Awaitable[Any], daemon: bool=False) -> asyncio.Task:
         future = asyncio.Future()
