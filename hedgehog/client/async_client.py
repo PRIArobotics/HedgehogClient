@@ -2,17 +2,13 @@ from typing import cast, Any, Awaitable, Callable, List, Optional, Sequence, Tup
 
 import asyncio
 import logging
-import os
-import signal
 import sys
-import time
 import zmq.asyncio
 from aiostream.context_utils import async_context_manager
-from hedgehog.utils.asyncio import Actor, stream_from_queue
+from hedgehog.utils.asyncio import Actor
 from hedgehog.protocol import errors, ClientSide
-from hedgehog.protocol.async_sockets import ReqSocket, DealerRouterSocket
+from hedgehog.protocol.async_sockets import DealerRouterSocket
 from hedgehog.protocol.messages import Message, ack, io, analog, digital, motor, servo, process
-from pycreate2 import Create2
 from .async_handlers import EventHandler, HandlerRegistry, process_handler
 
 logger = logging.getLogger(__name__)

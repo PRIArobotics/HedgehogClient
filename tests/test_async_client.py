@@ -1,7 +1,7 @@
 from typing import Awaitable, Callable, List
 
 import pytest
-from hedgehog.utils.test_utils import event_loop, zmq_ctx, zmq_aio_ctx
+from hedgehog.utils.test_utils import event_loop, zmq_aio_ctx
 
 import asyncio
 import threading
@@ -22,7 +22,7 @@ from hedgehog.server.hardware.mocked import MockedHardwareAdapter
 from hedgehog.utils.asyncio import pipe
 
 # Pytest fixtures
-event_loop, zmq_ctx, zmq_aio_ctx
+event_loop, zmq_aio_ctx
 
 
 def handler(adapter: HardwareAdapter=None) -> handlers.HandlerCallbackDict:
