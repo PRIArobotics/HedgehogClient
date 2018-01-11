@@ -1,4 +1,4 @@
-from typing import Coroutine, TypeVar
+from typing import Callable, Coroutine, Tuple, TypeVar
 
 import concurrent.futures
 import sys
@@ -7,6 +7,7 @@ import zmq.asyncio
 from contextlib import contextmanager
 
 from hedgehog.utils.event_loop import EventLoopThread
+from hedgehog.protocol.messages import motor
 from . import async_client
 
 T = TypeVar('T')
@@ -17,7 +18,7 @@ class SyncClient(object):
         self._loop = EventLoopThread()
         self.ctx = ctx
         self.endpoint = endpoint
-        self.client = None  # type: AsyncClient
+        self.client = None  # type: async_client.AsyncClient
 
     def _create_client(self):
         return async_client.AsyncClient(self.ctx, self.endpoint)  # pragma: nocover
@@ -116,6 +117,63 @@ class HedgehogClientMixin(object):
 
     def get_analog(self, port: int) -> int:
         return self._call_safe(lambda: self.client.get_analog(port))
+
+    def get_digital(self, port: int) -> bool:
+        return self._call_safe(lambda: self.client.get_digital(port))
+
+    def set_digital_output(self, port: int, level: bool) -> None:
+        self._call_safe(lambda: self.client.set_digital_output(port, level))
+
+    def get_io_config(self, port: int) -> int:
+        return self._call_safe(lambda: self.client.get_io_config(port))
+
+    def set_motor(self, port: int, state: int, amount: int=0,
+                  reached_state: int=motor.POWER, relative: int=None, absolute: int=None,
+                  on_reached: Callable[[int, int], None]=None) -> None:
+        self._call_safe(lambda: self.client.set_motor(port, state, amount, reached_state, relative, absolute, on_reached))
+
+    def move(self, port: int, amount: int, state: int=motor.POWER) -> None:
+        self._call_safe(lambda: self.client.move(port, amount, state))
+
+    def move_relative_position(self, port: int, amount: int, relative: int, state: int=motor.POWER,
+                               on_reached: Callable[[int, int], None]=None) -> None:
+        self._call_safe(lambda: self.client.move_relative_position(port, amount, relative, state, on_reached))
+
+    def move_absolute_position(self, port: int, amount: int, absolute: int, state: int=motor.POWER,
+                               on_reached: Callable[[int, int], None]=None) -> None:
+        self._call_safe(lambda: self.client.move_absolute_position(port, amount, absolute, state, on_reached))
+
+    def get_motor_command(self, port: int) -> Tuple[int, int]:
+        return self._call_safe(lambda: self.client.get_motor_command(port))
+
+    def get_motor_state(self, port: int) -> Tuple[int, int]:
+        return self._call_safe(lambda: self.client.get_motor_state(port))
+
+    def get_motor_velocity(self, port: int) -> int:
+        return self._call_safe(lambda: self.client.get_motor_velocity(port))
+
+    def get_motor_position(self, port: int) -> int:
+        return self._call_safe(lambda: self.client.get_motor_position(port))
+
+    def set_motor_position(self, port: int, position: int) -> None:
+        self._call_safe(lambda: self.client.set_motor_position(port, position))
+
+    def set_servo(self, port: int, active: bool, position: int) -> None:
+        self._call_safe(lambda: self.client.set_servo(port, active, position))
+
+    def get_servo_command(self, port: int) -> Tuple[bool, int]:
+        return self._call_safe(lambda: self.client.get_servo_command(port))
+
+    def execute_process(self, *args: str, working_dir: str=None, on_stdout=None, on_stderr=None, on_exit=None) -> int:
+        return self._call_safe(
+            lambda: self.client.execute_process(*args, working_dir=working_dir,
+                                                on_stdout=on_stdout, on_stderr=on_stderr, on_exit=on_exit))
+
+    def signal_process(self, pid: int, signal: int=2) -> None:
+        self._call_safe(lambda: self.client.signal_process(pid, signal))
+
+    def send_process_data(self, pid: int, chunk: bytes=b'') -> None:
+        self._call_safe(lambda: self.client.send_process_data(pid, chunk))
 
 
 class HedgehogClient(HedgehogClientMixin, SyncClient):

@@ -10,9 +10,8 @@ from aiostream.context_utils import async_context_manager
 
 from hedgehog.client.async_client import HedgehogClient
 from hedgehog.protocol import errors
-from hedgehog.protocol.messages import Message, ack, analog, digital, io, motor, servo, process
+from hedgehog.protocol.messages import io, motor, process
 from hedgehog.protocol.async_sockets import DealerRouterSocket
-from hedgehog.server import HedgehogServer
 from hedgehog.server.hardware import HardwareAdapter
 from hedgehog.server.hardware.mocked import MockedHardwareAdapter
 from hedgehog.utils.asyncio import pipe

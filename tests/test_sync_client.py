@@ -1,26 +1,22 @@
 from typing import Awaitable, Callable
 
 import pytest
-from hedgehog.utils.test_utils import zmq_ctx, zmq_aio_ctx
-from hedgehog.client.test_utils import handler, start_dummy, start_dummy_sync, start_server, start_server_sync, Commands
+from hedgehog.utils.test_utils import zmq_aio_ctx
+from hedgehog.client.test_utils import start_dummy, start_dummy_sync, start_server, start_server_sync, Commands
 
 import time
 import zmq.asyncio
 from contextlib import contextmanager
 
 from hedgehog.client.sync_client import HedgehogClient
-from hedgehog.client.components import HedgehogComponentGetterMixin
-from hedgehog.protocol import errors, ServerSide
-from hedgehog.protocol.messages import Message, ack, analog, digital, io, motor, servo, process
+from hedgehog.protocol import errors
+from hedgehog.protocol.messages import io, motor, process
 from hedgehog.protocol.sockets import DealerRouterSocket
-from hedgehog.server import handlers, HedgehogServer
 from hedgehog.server.hardware import HardwareAdapter
-from hedgehog.server.hardware.mocked import MockedHardwareAdapter
-from hedgehog.utils.event_loop import EventLoopThread
 
 
 # Pytest fixtures
-zmq_ctx, zmq_aio_ctx, start_dummy, start_dummy_sync, start_server, start_server_sync
+zmq_aio_ctx, start_dummy, start_dummy_sync, start_server, start_server_sync
 
 
 @pytest.fixture
@@ -125,7 +121,6 @@ class TestHedgehogClientAPI(object):
         with connect_dummy(Commands.io_action_input, port, pullup) as client:
             assert client.set_input_state(port, pullup) is None
 
-    @pytest.mark.skip
     def test_get_io_config(self, connect_dummy):
         port, flags = 0, io.INPUT_FLOATING
         with connect_dummy(Commands.io_command_request, port, flags) as client:
@@ -136,53 +131,52 @@ class TestHedgehogClientAPI(object):
         with connect_dummy(Commands.analog_request, port, value) as client:
             assert client.get_analog(port) == value
 
-    # def test_get_digital(self, connect_dummy):
-    #     port, value = 0, False
-    #     with connect_dummy(Commands.digital_request, port, value) as client:
-    #         assert client.get_digital(port) == value
-    #
-    # def test_set_digital_output(self, connect_dummy):
-    #     port, level = 0, False
-    #     with connect_dummy(Commands.io_action_output, port, level) as client:
-    #         assert client.set_digital_output(port, level) is None
-    #
-    # def test_set_motor(self, connect_dummy):
-    #     port, state, amount = 0, motor.POWER, 100
-    #     with connect_dummy(Commands.motor_action, port, state, amount) as client:
-    #         assert client.set_motor(port, state, amount) is None
-    #
-    # def test_get_motor_command(self, connect_dummy):
-    #     port, state, amount = 0, motor.POWER, 0
-    #     with connect_dummy(Commands.motor_command_request, port, state, amount) as client:
-    #         assert client.get_motor_command(port) == (state, amount)
-    #
-    # def test_get_motor_state(self, connect_dummy):
-    #     port, velocity, position = 0, 0, 0
-    #     with connect_dummy(Commands.motor_state_request, port, velocity, position) as client:
-    #         assert client.get_motor_state(port) == (velocity, position)
-    #
-    # def test_set_motor_position(self, connect_dummy):
-    #     port, position = 0, 0
-    #     with connect_dummy(Commands.motor_set_position_action, port, position) as client:
-    #         assert client.set_motor_position(port, position) is None
-    #
-    # def test_set_servo(self, connect_dummy):
-    #     port, active, position = 0, False, 0
-    #     with connect_dummy(Commands.servo_action, port, active, position) as client:
-    #         assert client.set_servo(port, active, position) is None
-    #
-    # def test_get_servo_command(self, connect_dummy):
-    #     port, active, position = 0, False, None
-    #     with connect_dummy(Commands.servo_command_request, port, active, position) as client:
-    #         assert client.get_servo_command(port) == (active, position)
-    #
-    #     port, active, position = 0, True, 0
-    #     with connect_dummy(Commands.servo_command_request, port, active, position) as client:
-    #         assert client.get_servo_command(port) == (active, position)
+    def test_get_digital(self, connect_dummy):
+        port, value = 0, False
+        with connect_dummy(Commands.digital_request, port, value) as client:
+            assert client.get_digital(port) == value
+
+    def test_set_digital_output(self, connect_dummy):
+        port, level = 0, False
+        with connect_dummy(Commands.io_action_output, port, level) as client:
+            assert client.set_digital_output(port, level) is None
+
+    def test_set_motor(self, connect_dummy):
+        port, state, amount = 0, motor.POWER, 100
+        with connect_dummy(Commands.motor_action, port, state, amount) as client:
+            assert client.set_motor(port, state, amount) is None
+
+    def test_get_motor_command(self, connect_dummy):
+        port, state, amount = 0, motor.POWER, 0
+        with connect_dummy(Commands.motor_command_request, port, state, amount) as client:
+            assert client.get_motor_command(port) == (state, amount)
+
+    def test_get_motor_state(self, connect_dummy):
+        port, velocity, position = 0, 0, 0
+        with connect_dummy(Commands.motor_state_request, port, velocity, position) as client:
+            assert client.get_motor_state(port) == (velocity, position)
+
+    def test_set_motor_position(self, connect_dummy):
+        port, position = 0, 0
+        with connect_dummy(Commands.motor_set_position_action, port, position) as client:
+            assert client.set_motor_position(port, position) is None
+
+    def test_set_servo(self, connect_dummy):
+        port, active, position = 0, False, 0
+        with connect_dummy(Commands.servo_action, port, active, position) as client:
+            assert client.set_servo(port, active, position) is None
+
+    def test_get_servo_command(self, connect_dummy):
+        port, active, position = 0, False, None
+        with connect_dummy(Commands.servo_command_request, port, active, position) as client:
+            assert client.get_servo_command(port) == (active, position)
+
+        port, active, position = 0, True, 0
+        with connect_dummy(Commands.servo_command_request, port, active, position) as client:
+            assert client.get_servo_command(port) == (active, position)
 
 
 class TestHedgehogClientProcessAPI(object):
-    @pytest.mark.skip
     def test_execute_process_handle_nothing(self, connect_dummy):
         pid = 2345
         with connect_dummy(Commands.execute_process_echo_asdf, pid) as client:
