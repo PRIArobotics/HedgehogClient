@@ -1,64 +1,32 @@
-from typing import Awaitable, Callable, List
+from typing import Awaitable, Callable
 
 import pytest
 from hedgehog.utils.test_utils import event_loop, zmq_aio_ctx
+from hedgehog.client.test_utils import handler, hardware_adapter, start_dummy, Commands
 
 import asyncio
-import threading
-import traceback
 import zmq.asyncio
-from contextlib import contextmanager
 from aiostream.context_utils import async_context_manager
 
 from hedgehog.client.async_client import HedgehogClient
-from hedgehog.protocol import errors, ServerSide
+from hedgehog.protocol import errors
 from hedgehog.protocol.messages import Message, ack, analog, digital, io, motor, servo, process
 from hedgehog.protocol.async_sockets import DealerRouterSocket
-from hedgehog.server import handlers, HedgehogServer
-from hedgehog.server.handlers.hardware import HardwareHandler
-from hedgehog.server.handlers.process import ProcessHandler
+from hedgehog.server import HedgehogServer
 from hedgehog.server.hardware import HardwareAdapter
 from hedgehog.server.hardware.mocked import MockedHardwareAdapter
 from hedgehog.utils.asyncio import pipe
 
 # Pytest fixtures
-event_loop, zmq_aio_ctx
-
-
-def handler(adapter: HardwareAdapter=None) -> handlers.HandlerCallbackDict:
-    if adapter is None:
-        adapter = MockedHardwareAdapter()
-    return handlers.to_dict(HardwareHandler(adapter), ProcessHandler(adapter))
-
-
-@pytest.fixture
-def hardware_adapter():
-    return MockedHardwareAdapter()
+event_loop, zmq_aio_ctx, hardware_adapter
 
 
 @async_context_manager
 async def connect_dummy(ctx: zmq.asyncio.Context, dummy: Callable[[DealerRouterSocket], Awaitable[None]], *args,
                         endpoint: str='inproc://controller', client_class=HedgehogClient, **kwargs):
-    with DealerRouterSocket(ctx, zmq.ROUTER, side=ServerSide) as socket:
-        socket.bind(endpoint)
-
-        async def target():
-            await dummy(socket, *args, **kwargs)
-
-            ident, msgs = await socket.recv_msgs()
-            _msgs = []  # type: List[Message]
-            _msgs.extend(motor.Action(port, motor.POWER, 0) for port in range(0, 4))
-            _msgs.extend(servo.Action(port, False, 0) for port in range(0, 4))
-            assert msgs == tuple(_msgs)
-            await socket.send_msgs(ident, [ack.Acknowledgement()] * 8)
-
-        task = asyncio.ensure_future(target())
-        try:
-            async with client_class(ctx, endpoint) as client:
-                yield client
-            await task
-        finally:
-            task.cancel()
+    async with start_dummy(ctx, dummy, *args, endpoint=endpoint, **kwargs):
+        async with client_class(ctx, endpoint) as client:
+            yield client
 
 
 @pytest.fixture
@@ -153,104 +121,6 @@ async def test_daemon_context(zmq_aio_ctx: zmq.asyncio.Context, server: str):
 async def test_unsupported(client: HedgehogClient):
     with pytest.raises(errors.UnsupportedCommandError):
         await client.get_analog(0)
-
-
-class Commands(object):
-    @staticmethod
-    async def io_action_input(server, port, pullup):
-        ident, msg = await server.recv_msg()
-        assert msg == io.Action(port, io.INPUT_PULLUP if pullup else io.INPUT_FLOATING)
-        await server.send_msg(ident, ack.Acknowledgement())
-
-    @staticmethod
-    async def io_command_request(server, port, flags):
-        ident, msg = await server.recv_msg()
-        assert msg == io.CommandRequest(port)
-        await server.send_msg(ident, io.CommandReply(port, flags))
-
-    @staticmethod
-    async def analog_request(server, port, value):
-        ident, msg = await server.recv_msg()
-        assert msg == analog.Request(port)
-        await server.send_msg(ident, analog.Reply(port, value))
-
-    @staticmethod
-    async def digital_request(server, port, value):
-        ident, msg = await server.recv_msg()
-        assert msg == digital.Request(port)
-        await server.send_msg(ident, digital.Reply(port, value))
-
-    @staticmethod
-    async def io_action_output(server, port, level):
-        ident, msg = await server.recv_msg()
-        assert msg == io.Action(port, io.OUTPUT_ON if level else io.OUTPUT_OFF)
-        await server.send_msg(ident, ack.Acknowledgement())
-
-    @staticmethod
-    async def motor_action(server, port, state, amount):
-        ident, msg = await server.recv_msg()
-        assert msg == motor.Action(port, state, amount)
-        await server.send_msg(ident, ack.Acknowledgement())
-
-    @staticmethod
-    async def motor_command_request(server, port, state, amount):
-        ident, msg = await server.recv_msg()
-        assert msg == motor.CommandRequest(port)
-        await server.send_msg(ident, motor.CommandReply(port, state, amount))
-
-    @staticmethod
-    async def motor_state_request(server, port, velocity, position):
-        ident, msg = await server.recv_msg()
-        assert msg == motor.StateRequest(port)
-        await server.send_msg(ident, motor.StateReply(port, velocity, position))
-
-    @staticmethod
-    async def motor_set_position_action(server, port, position):
-        ident, msg = await server.recv_msg()
-        assert msg == motor.SetPositionAction(port, position)
-        await server.send_msg(ident, ack.Acknowledgement())
-
-    @staticmethod
-    async def servo_action(server, port, active, position):
-        ident, msg = await server.recv_msg()
-        assert msg == servo.Action(port, active, position)
-        await server.send_msg(ident, ack.Acknowledgement())
-
-    @staticmethod
-    async def servo_command_request(server, port, active, position):
-        ident, msg = await server.recv_msg()
-        assert msg == servo.CommandRequest(port)
-        await server.send_msg(ident, servo.CommandReply(port, active, position))
-
-    @staticmethod
-    async def execute_process_echo_asdf(server, pid):
-        ident, msg = await server.recv_msg()
-        assert msg == process.ExecuteAction('echo', 'asdf')
-        await server.send_msg(ident, process.ExecuteReply(pid))
-        await server.send_msg(ident, process.StreamUpdate(pid, process.STDOUT, b'asdf\n'))
-        await server.send_msg(ident, process.StreamUpdate(pid, process.STDOUT))
-        await server.send_msg(ident, process.StreamUpdate(pid, process.STDERR))
-        await server.send_msg(ident, process.ExitUpdate(pid, 0))
-
-    @staticmethod
-    async def execute_process_cat(server, pid):
-        ident, msg = await server.recv_msg()
-        assert msg == process.ExecuteAction('cat')
-        await server.send_msg(ident, process.ExecuteReply(pid))
-
-        while True:
-            ident, msg = await server.recv_msg()
-            chunk = msg.chunk
-            assert msg == process.StreamAction(pid, process.STDIN, chunk)
-            await server.send_msg(ident, ack.Acknowledgement())
-
-            await server.send_msg(ident, process.StreamUpdate(pid, process.STDOUT, chunk))
-
-            if chunk == b'':
-                break
-
-        await server.send_msg(ident, process.StreamUpdate(pid, process.STDERR))
-        await server.send_msg(ident, process.ExitUpdate(pid, 0))
 
 
 class HedgehogAPITestCase(object):
