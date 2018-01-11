@@ -10,7 +10,7 @@ import zmq.asyncio
 from contextlib import contextmanager
 from aiostream.context_utils import async_context_manager
 
-from hedgehog.client.async_client import AsyncClient
+from hedgehog.client.async_client import HedgehogClient
 from hedgehog.protocol import errors, ServerSide
 from hedgehog.protocol.messages import Message, ack, analog, digital, io, motor, servo, process
 from hedgehog.protocol.async_sockets import DealerRouterSocket
@@ -38,7 +38,7 @@ def hardware_adapter():
 
 @async_context_manager
 async def connect_dummy(ctx: zmq.asyncio.Context, dummy: Callable[[DealerRouterSocket], Awaitable[None]], *args,
-                  endpoint: str='inproc://controller', client_class=AsyncClient, **kwargs):
+                        endpoint: str='inproc://controller', client_class=HedgehogClient, **kwargs):
     with DealerRouterSocket(ctx, zmq.ROUTER, side=ServerSide) as socket:
         socket.bind(endpoint)
 
@@ -69,12 +69,12 @@ async def server(zmq_aio_ctx: zmq.asyncio.Context, hardware_adapter: HardwareAda
 
 @pytest.fixture
 async def client(zmq_aio_ctx: zmq.asyncio.Context, server: str):
-    async with AsyncClient(zmq_aio_ctx, server) as client:
+    async with HedgehogClient(zmq_aio_ctx, server) as client:
         yield client
 
 
 @pytest.mark.asyncio
-async def test_concurrent_commands(client: AsyncClient, hardware_adapter: MockedHardwareAdapter):
+async def test_concurrent_commands(client: HedgehogClient, hardware_adapter: MockedHardwareAdapter):
     hardware_adapter.set_digital(8, 0, True)
 
     task_a = asyncio.ensure_future(client.get_analog(0))
@@ -85,7 +85,7 @@ async def test_concurrent_commands(client: AsyncClient, hardware_adapter: Mocked
 
 @pytest.mark.asyncio
 async def test_overlapping_contexts(zmq_aio_ctx: zmq.asyncio.Context, server: str):
-    async with AsyncClient(zmq_aio_ctx, server) as client:
+    async with HedgehogClient(zmq_aio_ctx, server) as client:
         async def do_something():
             assert client._open_count == 2
             await asyncio.sleep(2)
@@ -102,7 +102,7 @@ async def test_overlapping_contexts(zmq_aio_ctx: zmq.asyncio.Context, server: st
 
 @pytest.mark.asyncio
 async def test_inactive_context(zmq_aio_ctx: zmq.asyncio.Context, server: str):
-    client = AsyncClient(zmq_aio_ctx, server)
+    client = HedgehogClient(zmq_aio_ctx, server)
 
     with pytest.raises(RuntimeError):
         await client.get_analog(0)
@@ -115,7 +115,7 @@ async def test_inactive_context(zmq_aio_ctx: zmq.asyncio.Context, server: str):
 
 
 @pytest.mark.asyncio
-async def test_shutdown_context(client: AsyncClient):
+async def test_shutdown_context(client: HedgehogClient):
     async def do_something():
         assert await client.get_analog(0) == 0
         await asyncio.sleep(2)
@@ -136,7 +136,7 @@ async def test_shutdown_context(client: AsyncClient):
 
 @pytest.mark.asyncio
 async def test_daemon_context(zmq_aio_ctx: zmq.asyncio.Context, server: str):
-    async with AsyncClient(zmq_aio_ctx, server) as client:
+    async with HedgehogClient(zmq_aio_ctx, server) as client:
         async def do_something():
             assert await client.get_analog(0) == 0
             await asyncio.sleep(2)
@@ -150,7 +150,7 @@ async def test_daemon_context(zmq_aio_ctx: zmq.asyncio.Context, server: str):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize('hardware_adapter', [HardwareAdapter()])
-async def test_unsupported(client: AsyncClient):
+async def test_unsupported(client: HedgehogClient):
     with pytest.raises(errors.UnsupportedCommandError):
         await client.get_analog(0)
 

@@ -181,6 +181,8 @@ class AsyncClient(Actor):
         await future
         return result
 
+
+class HedgehogClientMixin(object):
     async def set_input_state(self, port: int, pullup: bool) -> None:
         await self.send(io.Action(port, io.INPUT_PULLUP if pullup else io.INPUT_FLOATING))
 
@@ -266,3 +268,7 @@ class AsyncClient(Actor):
 
     async def send_process_data(self, pid: int, chunk: bytes=b'') -> None:
         await self.send(process.StreamAction(pid, process.STDIN, chunk))
+
+
+class HedgehogClient(HedgehogClientMixin, AsyncClient):
+    pass
