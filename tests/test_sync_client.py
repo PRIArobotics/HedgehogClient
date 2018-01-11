@@ -5,7 +5,7 @@ import time
 import zmq.asyncio
 from contextlib import contextmanager
 
-from hedgehog.client.sync_client import SyncClient
+from hedgehog.client.sync_client import HedgehogClient
 from hedgehog.client.components import HedgehogComponentGetterMixin
 from hedgehog.protocol import errors, ServerSide
 from hedgehog.protocol.messages import Message, ack, analog, digital, io, motor, servo, process
@@ -67,15 +67,15 @@ def handler(adapter: HardwareAdapter=None) -> handlers.HandlerCallbackDict:
 
 def test_connect(zmq_aio_ctx: zmq.asyncio.Context):
     with EventLoopThread() as looper,\
-            looper.context(HedgehogServer(zmq_aio_ctx, 'inproc://controller', handler())),\
-            SyncClient(zmq_aio_ctx, endpoint='inproc://controller') as client:
+            looper.context(HedgehogServer(zmq_aio_ctx, 'inproc://controller', handler())), \
+            HedgehogClient(zmq_aio_ctx, endpoint='inproc://controller') as client:
         client.set_input_state(0, False)
 
 
 def test_overlapping_contexts(zmq_aio_ctx: zmq.asyncio.Context):
     with EventLoopThread() as looper,\
             looper.context(HedgehogServer(zmq_aio_ctx, 'inproc://controller', handler())):
-        with SyncClient(zmq_aio_ctx, endpoint='inproc://controller') as client:
+        with HedgehogClient(zmq_aio_ctx, endpoint='inproc://controller') as client:
             def do_something():
                 time.sleep(0.2)
                 assert client.get_analog(0) == 0
@@ -89,7 +89,7 @@ def test_overlapping_contexts(zmq_aio_ctx: zmq.asyncio.Context):
 def test_inactive_context(zmq_aio_ctx: zmq.asyncio.Context):
     with EventLoopThread() as looper,\
             looper.context(HedgehogServer(zmq_aio_ctx, 'inproc://controller', handler())):
-        client = SyncClient(zmq_aio_ctx, endpoint='inproc://controller')
+        client = HedgehogClient(zmq_aio_ctx, endpoint='inproc://controller')
 
         with pytest.raises(RuntimeError):
             client.get_analog(0)
@@ -103,8 +103,8 @@ def test_inactive_context(zmq_aio_ctx: zmq.asyncio.Context):
 
 def test_shutdown_context(zmq_aio_ctx: zmq.asyncio.Context):
     with EventLoopThread() as looper,\
-            looper.context(HedgehogServer(zmq_aio_ctx, 'inproc://controller', handler())),\
-            SyncClient(zmq_aio_ctx, endpoint='inproc://controller') as client:
+            looper.context(HedgehogServer(zmq_aio_ctx, 'inproc://controller', handler())), \
+            HedgehogClient(zmq_aio_ctx, endpoint='inproc://controller') as client:
         def do_something():
             assert client.get_analog(0) == 0
             time.sleep(0.2)
@@ -122,7 +122,7 @@ def test_shutdown_context(zmq_aio_ctx: zmq.asyncio.Context):
 def test_daemon_context(zmq_aio_ctx: zmq.asyncio.Context):
     with EventLoopThread() as looper,\
             looper.context(HedgehogServer(zmq_aio_ctx, 'inproc://controller', handler())):
-        with SyncClient(zmq_aio_ctx, endpoint='inproc://controller') as client:
+        with HedgehogClient(zmq_aio_ctx, endpoint='inproc://controller') as client:
             def do_something():
                 assert client.get_analog(0) == 0
                 time.sleep(0.2)

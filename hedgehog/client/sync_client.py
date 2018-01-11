@@ -7,7 +7,7 @@ import zmq.asyncio
 from contextlib import contextmanager
 
 from hedgehog.utils.event_loop import EventLoopThread
-from .async_client import HedgehogClient
+from . import async_client
 
 T = TypeVar('T')
 
@@ -20,7 +20,7 @@ class SyncClient(object):
         self.client = None  # type: AsyncClient
 
     def _create_client(self):
-        return HedgehogClient(self.ctx, self.endpoint)
+        return async_client.AsyncClient(self.ctx, self.endpoint)  # pragma: nocover
 
     def _call(self, coro: Coroutine[None, None, T]) -> T:
         return self._loop.run_coroutine(coro).result()
@@ -106,9 +106,17 @@ class SyncClient(object):
         future.result()
         return result
 
+
+class HedgehogClientMixin(object):
+    def _create_client(self):
+        return async_client.HedgehogClient(self.ctx, self.endpoint)
+
     def set_input_state(self, port: int, pullup: bool) -> None:
         self._call_safe(lambda: self.client.set_input_state(port, pullup))
 
     def get_analog(self, port: int) -> int:
         return self._call_safe(lambda: self.client.get_analog(port))
 
+
+class HedgehogClient(HedgehogClientMixin, SyncClient):
+    pass
