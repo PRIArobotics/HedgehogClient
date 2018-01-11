@@ -19,13 +19,16 @@ class SyncClient(object):
         self.endpoint = endpoint
         self.client = None  # type: AsyncClient
 
+    def _create_client(self):
+        return AsyncClient(self.ctx, self.endpoint)
+
     def _call(self, coro: Coroutine[None, None, T]) -> T:
         return self._loop.run_coroutine(coro).result()
 
     def _enter(self, daemon=False):
         if self.client is None:
             async def create_client():
-                return AsyncClient(self.ctx, self.endpoint)
+                return self._create_client()
 
             type(self._loop).__enter__(self._loop)
             try:
