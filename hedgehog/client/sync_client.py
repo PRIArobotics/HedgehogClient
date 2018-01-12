@@ -1,12 +1,16 @@
 from typing import Callable, Coroutine, Tuple, TypeVar
 
 import concurrent.futures
+import os
+import signal
 import sys
 import threading
+import time
 import zmq.asyncio
 from contextlib import contextmanager
 
 from hedgehog.utils.event_loop import EventLoopThread
+from hedgehog.protocol import errors
 from hedgehog.protocol.messages import motor
 from . import async_client
 
@@ -178,3 +182,31 @@ class HedgehogClientMixin(object):
 
 class HedgehogClient(HedgehogClientMixin, SyncClient):
     pass
+
+
+@contextmanager
+def connect(endpoint='tcp://127.0.0.1:10789', emergency=None,
+            ctx=None, client_class=HedgehogClient, process_setup=True):
+    # TODO SIGINT handling
+
+    ctx = ctx or zmq.asyncio.Context()
+    with client_class(ctx, endpoint) as client:
+        # TODO a remote application's emergency_stop is remote, so it won't work in case of a disconnection!
+        def emergency_stop():
+            try:
+                client.set_input_state(emergency, True)
+                # while not client.get_digital(emergency):
+                while client.get_digital(emergency):
+                    time.sleep(0.1)
+
+                os.kill(os.getpid(), signal.SIGINT)
+            except errors.EmergencyShutdown:
+                pass
+
+        if emergency is not None:
+            client.spawn(emergency_stop, name="emergency_stop", daemon=True)
+
+        try:
+            yield client
+        except errors.EmergencyShutdown as ex:
+            print(ex)

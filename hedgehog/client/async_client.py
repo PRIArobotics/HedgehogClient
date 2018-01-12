@@ -2,6 +2,8 @@ from typing import cast, Any, Awaitable, Callable, List, Optional, Sequence, Tup
 
 import asyncio
 import logging
+import os
+import signal
 import sys
 import zmq.asyncio
 from aiostream.context_utils import async_context_manager
@@ -272,3 +274,31 @@ class HedgehogClientMixin(object):
 
 class HedgehogClient(HedgehogClientMixin, AsyncClient):
     pass
+
+
+@async_context_manager
+async def connect(endpoint='tcp://127.0.0.1:10789', emergency=None,
+                  ctx=None, client_class=HedgehogClient, process_setup=True):
+    # TODO SIGINT handling
+
+    ctx = ctx or zmq.asyncio.Context()
+    async with client_class(ctx, endpoint) as client:
+        # TODO a remote application's emergency_stop is remote, so it won't work in case of a disconnection!
+        async def emergency_stop():
+            try:
+                await client.set_input_state(emergency, True)
+                # while not client.get_digital(emergency):
+                while await client.get_digital(emergency):
+                    await asyncio.sleep(0.1)
+
+                os.kill(os.getpid(), signal.SIGINT)
+            except errors.EmergencyShutdown:
+                pass
+
+        if emergency is not None:
+            await client.spawn(emergency_stop(), daemon=True)
+
+        try:
+            yield client
+        except errors.EmergencyShutdown as ex:
+            print(ex)
