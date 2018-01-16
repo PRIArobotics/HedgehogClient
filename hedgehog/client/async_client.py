@@ -5,8 +5,9 @@ import logging
 import os
 import signal
 import sys
+import threading
 import zmq.asyncio
-from aiostream.context_utils import async_context_manager
+from aiostream.context_utils import async_context_manager, AsyncExitStack
 from hedgehog.utils.asyncio import Actor
 from hedgehog.protocol import errors, ClientSide
 from hedgehog.protocol.async_sockets import DealerRouterSocket
@@ -30,6 +31,7 @@ class AsyncClient(Actor):
 
         self._open_count = 0
         self._daemon_count = 0
+        self._exit_stack = AsyncExitStack()
         self._shutdown = False
 
     async def _aenter(self, daemon=False):
@@ -43,7 +45,33 @@ class AsyncClient(Actor):
             self._daemon_count += 1
 
         if self._open_count == 1:
+            # can't just do this:
+            #   await self._exit_stack.enter_context(super(AsyncClient, self))
+            # as a super(...) object's type does not have __aenter__/__aexit__.
+            # That the super object itself has these is not relevant.
+
             await super(AsyncClient, self).__aenter__()
+            self._exit_stack.push(super(AsyncClient, self).__aexit__)
+
+            if threading.current_thread() is threading.main_thread():
+                @async_context_manager
+                async def sigint_handler_ctx():
+                    loop = asyncio.get_event_loop()
+
+                    def sigint_handler():
+                        task = loop.create_task(self.shutdown())
+                        # make sure to wait for the shutdown task to complete
+                        # the callback must return an awaitable, so just return the task
+                        self._exit_stack.callback(lambda: task)
+
+                    loop.add_signal_handler(signal.SIGINT, sigint_handler)
+                    try:
+                        yield
+                    finally:
+                        loop.remove_signal_handler(signal.SIGINT)
+
+                await self._exit_stack.enter_context(sigint_handler_ctx())
+
         return self
 
     async def _aexit(self, exc_type, exc_val, exc_tb, daemon=False):
@@ -53,7 +81,7 @@ class AsyncClient(Actor):
         if self._open_count - 1 == self._daemon_count:
             await self.shutdown()
         if self._open_count == 1:
-            await super(AsyncClient, self).__aexit__(exc_type, exc_val, exc_tb)
+            await self._exit_stack.__aexit__(exc_type, exc_val, exc_tb)
         self._open_count -= 1
 
     async def __aenter__(self):
