@@ -55,24 +55,20 @@ class AsyncClient(Actor):
             self._exit_stack.push(super(AsyncClient, self).__aexit__)
 
             if threading.current_thread() is threading.main_thread():
-                @async_context_manager
-                async def sigint_handler_ctx():
-                    loop = asyncio.get_event_loop()
+                loop = asyncio.get_event_loop()
 
-                    def sigint_handler():
-                        task = loop.create_task(self.shutdown())
+                def sigint_handler():
+                    task = loop.create_task(self.shutdown())
 
-                        @self._exit_stack.callback
-                        async def await_shutdown():
-                            await task
+                    @self._exit_stack.callback
+                    async def await_shutdown():
+                        await task
 
-                    loop.add_signal_handler(signal.SIGINT, sigint_handler)
-                    try:
-                        yield
-                    finally:
-                        loop.remove_signal_handler(signal.SIGINT)
+                loop.add_signal_handler(signal.SIGINT, sigint_handler)
 
-                await self._exit_stack.enter_context(sigint_handler_ctx())
+                @self._exit_stack.callback
+                async def remove_sigint_handler():
+                    loop.remove_signal_handler(signal.SIGINT)
 
         return self
 
