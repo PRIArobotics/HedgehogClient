@@ -61,9 +61,10 @@ class AsyncClient(Actor):
 
                     def sigint_handler():
                         task = loop.create_task(self.shutdown())
-                        # make sure to wait for the shutdown task to complete
-                        # the callback must return an awaitable, so just return the task
-                        self._exit_stack.callback(lambda: task)
+
+                        @self._exit_stack.callback
+                        async def await_shutdown():
+                            await task
 
                     loop.add_signal_handler(signal.SIGINT, sigint_handler)
                     try:

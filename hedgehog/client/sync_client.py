@@ -36,13 +36,13 @@ class SyncClient(object):
                 async def create_client():
                     return self._create_client()
 
-                def clear_client():
-                    self.client = None
-
                 stack.enter_context(self._loop)
                 # create the client on the event loop, to be sure the client uses the correct one
                 self.client = self._call(create_client())
-                stack.callback(clear_client)
+
+                @stack.callback
+                def clear_client():
+                    self.client = None
 
             self._call(self.client._aenter(daemon=daemon))
             # all went well, so don't exit the loop (if it was entered in this call)
@@ -54,14 +54,16 @@ class SyncClient(object):
 
         # called last
         # if the client is now closed, exit the loop; otherwise, do nothing
-        stack.push(lambda exc_type, exc_val, exc_tb:
-                   None if not self.client.is_closed else
-                   type(self._loop).__exit__(self._loop, exc_type, exc_val, exc_tb))
+        @stack.push
+        def exit_loop(exc_type, exc_val, exc_tb):
+            if self.client.is_closed:
+                type(self._loop).__exit__(self._loop, exc_type, exc_val, exc_tb)
 
         # called first
         # exit the client with the given daemon-ness, maybe leading the client to close
-        stack.push(lambda exc_type, exc_val, exc_tb:
-                   self._call(self.client._aexit(exc_type, exc_val, exc_tb, daemon=daemon)))
+        @stack.push
+        def exit_client(exc_type, exc_val, exc_tb):
+            self._call(self.client._aexit(exc_type, exc_val, exc_tb, daemon=daemon))
 
         # unwind the artificially created stack
         return stack.__exit__(exc_type, exc_val, exc_tb)
