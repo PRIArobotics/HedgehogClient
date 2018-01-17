@@ -7,7 +7,7 @@ import sys
 import threading
 import time
 import zmq.asyncio
-from contextlib import contextmanager
+from contextlib import contextmanager, ExitStack
 
 from hedgehog.utils.event_loop import EventLoopThread
 from hedgehog.protocol import errors
@@ -31,38 +31,40 @@ class SyncClient(object):
         return self._loop.run_coroutine(coro).result()
 
     def _enter(self, daemon=False):
-        if self.client is None:
-            async def create_client():
-                return self._create_client()
+        with ExitStack() as stack:
+            if self.client is None:
+                async def create_client():
+                    return self._create_client()
 
-            type(self._loop).__enter__(self._loop)
-            try:
-                self.client = self._loop.run_coroutine(create_client()).result()
-                self._call(self.client._aenter(daemon=daemon))
-                return self
-            except:
-                self.client = None
-                if not type(self._loop).__exit__(self._loop, *sys.exc_info()):
-                    raise
-        else:
+                def clear_client():
+                    self.client = None
+
+                stack.enter_context(self._loop)
+                # create the client on the event loop, to be sure the client uses the correct one
+                self.client = self._call(create_client())
+                stack.callback(clear_client)
+
             self._call(self.client._aenter(daemon=daemon))
+            # all went well, so don't exit the loop (if it was entered in this call)
+            stack.pop_all()
             return self
 
     def _exit(self, exc_type, exc_val, exc_tb, daemon=False):
-        try:
-            suppress = self._call(self.client._aexit(exc_type, exc_val, exc_tb, daemon=daemon))
-        except:
-            if not self.client.is_closed:
-                raise
-            if not type(self._loop).__exit__(self._loop, *sys.exc_info()):
-                raise
-        else:
-            if not self.client.is_closed:
-                return suppress
+        stack = ExitStack()
 
-            if suppress:
-                exc_type, exc_val, exc_tb = None, None, None
-            return type(self._loop).__exit__(self._loop, exc_type, exc_val, exc_tb)
+        # called last
+        # if the client is now closed, exit the loop; otherwise, do nothing
+        stack.push(lambda exc_type, exc_val, exc_tb:
+                   None if not self.client.is_closed else
+                   type(self._loop).__exit__(self._loop, exc_type, exc_val, exc_tb))
+
+        # called first
+        # exit the client with the given daemon-ness, maybe leading the client to close
+        stack.push(lambda exc_type, exc_val, exc_tb:
+                   self._call(self.client._aexit(exc_type, exc_val, exc_tb, daemon=daemon)))
+
+        # unwind the artificially created stack
+        return stack.__exit__(exc_type, exc_val, exc_tb)
 
     def __enter__(self):
         return self._enter()
