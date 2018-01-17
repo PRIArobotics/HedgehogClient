@@ -44,6 +44,13 @@ class SyncClient(object):
                 def clear_client():
                     self.client = None
 
+            if threading.current_thread() is threading.main_thread():
+                def sigint_handler(signal, frame):
+                    self.shutdown()
+
+                signal.signal(signal.SIGINT, sigint_handler)
+                # TODO unregister signal handler
+
             self._call(self.client._aenter(daemon=daemon))
             # all went well, so don't exit the loop (if it was entered in this call)
             stack.pop_all()
