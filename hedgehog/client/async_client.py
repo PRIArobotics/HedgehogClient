@@ -4,10 +4,11 @@ import asyncio
 import logging
 import os
 import signal
-import sys
 import threading
 import zmq.asyncio
 from aiostream.context_utils import async_context_manager, AsyncExitStack
+from functools import partial
+
 from hedgehog.utils.asyncio import Actor
 from hedgehog.protocol import errors, ClientSide
 from hedgehog.protocol.async_sockets import DealerRouterSocket
@@ -93,14 +94,10 @@ class AsyncClient(Actor):
     @property
     @async_context_manager
     async def daemon(self):
-        ret = await self._aenter(daemon=True)
-        try:
+        async with AsyncExitStack() as stack:
+            ret = await self._aenter(daemon=True)
+            stack.push(partial(self._aexit, daemon=True))
             yield ret
-        except:
-            if not await self._aexit(*sys.exc_info(), daemon=True):
-                raise
-        else:
-            await self._aexit(None, None, None, daemon=True)
 
     @property
     def is_shutdown(self):

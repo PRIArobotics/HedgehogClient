@@ -3,11 +3,11 @@ from typing import Callable, Coroutine, Tuple, TypeVar
 import concurrent.futures
 import os
 import signal
-import sys
 import threading
 import time
 import zmq.asyncio
 from contextlib import contextmanager, ExitStack
+from functools import partial
 
 from hedgehog.utils.event_loop import EventLoopThread
 from hedgehog.protocol import errors
@@ -75,14 +75,10 @@ class SyncClient(object):
     @property
     @contextmanager
     def daemon(self):
-        ret = self._enter(daemon=True)
-        try:
+        with ExitStack() as stack:
+            ret = self._enter(daemon=True)
+            stack.push(partial(self._exit, daemon=True))
             yield ret
-        except:
-            if not self._exit(*sys.exc_info(), daemon=True):
-                raise
-        else:
-            self._exit(None, None, None, daemon=True)
 
     @property
     def is_shutdown(self):
