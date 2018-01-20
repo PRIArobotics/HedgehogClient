@@ -64,11 +64,18 @@ class AsyncClient(Actor):
                     async def await_shutdown():
                         await task
 
+                old_handler = signal.getsignal(signal.SIGINT)
+                if old_handler is None:
+                    # None means that the previous signal handler was not installed from Python
+                    # it's not legal to pass None to signal(), so restore the default
+                    logger.warning("Removing a signal handler that can't be restored")
+                    old_handler = signal.SIG_DFL
                 loop.add_signal_handler(signal.SIGINT, sigint_handler)
 
                 @self._exit_stack.callback
                 async def remove_sigint_handler():
                     loop.remove_signal_handler(signal.SIGINT)
+                    signal.signal(signal.SIGINT, old_handler)
 
         return self
 
