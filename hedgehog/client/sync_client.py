@@ -1,6 +1,7 @@
 from typing import Callable, Coroutine, Tuple, TypeVar
 
 import concurrent.futures
+import logging
 import os
 import signal
 import threading
@@ -13,6 +14,8 @@ from hedgehog.utils.event_loop import EventLoopThread
 from hedgehog.protocol import errors
 from hedgehog.protocol.messages import motor
 from . import async_client
+
+logger = logging.getLogger(__name__)
 
 T = TypeVar('T')
 
@@ -31,16 +34,16 @@ class SyncClient(object):
         return self._loop.run_coroutine(coro).result()
 
     def _enter(self, daemon=False):
-        with ExitStack() as stack:
+        with ExitStack() as enter_stack:
             if self.client is None:
                 async def create_client():
                     return self._create_client()
 
-                stack.enter_context(self._loop)
+                enter_stack.enter_context(self._loop)
                 # create the client on the event loop, to be sure the client uses the correct one
                 self.client = self._call(create_client())
 
-                @stack.callback
+                @enter_stack.callback
                 def clear_client():
                     self.client = None
 
@@ -48,12 +51,21 @@ class SyncClient(object):
                 def sigint_handler(signal, frame):
                     self.shutdown()
 
+                old_handler = signal.getsignal(signal.SIGINT)
+                if old_handler is None:
+                    # None means that the previous signal handler was not installed from Python
+                    # it's not legal to pass None to signal(), so restore the default
+                    logger.warning("Removing a signal handler that can't be restored")
+                    old_handler = signal.SIG_DFL
                 signal.signal(signal.SIGINT, sigint_handler)
-                # TODO unregister signal handler
+
+                @enter_stack.callback
+                async def remove_sigint_handler():
+                    signal.signal(signal.SIGINT, old_handler)
 
             self._call(self.client._aenter(daemon=daemon))
             # all went well, so don't exit the loop (if it was entered in this call)
-            stack.pop_all()
+            enter_stack.pop_all()
             return self
 
     def _exit(self, exc_type, exc_val, exc_tb, daemon=False):
@@ -64,7 +76,15 @@ class SyncClient(object):
         @stack.push
         def exit_loop(exc_type, exc_val, exc_tb):
             if self.client.is_closed:
-                type(self._loop).__exit__(self._loop, exc_type, exc_val, exc_tb)
+                self._loop.__exit__(exc_type, exc_val, exc_tb)
+
+        # remove the signal handler installed
+        @stack.callback
+        def remove_sigint_handler():
+            # TODO the main thread is not necessarily the last thread to finish.
+            # Should the signal handler be removed in case it isn't?
+            if threading.current_thread() is threading.main_thread():
+                signal.signal(signal.SIGINT, signal.SIG_DFL)
 
         # called first
         # exit the client with the given daemon-ness, maybe leading the client to close
