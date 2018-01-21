@@ -32,62 +32,101 @@ class AsyncClient(Actor):
 
         self._open_count = 0
         self._daemon_count = 0
-        self._exit_stack = AsyncExitStack()
+        self._exit_stack = None  # type: AsyncExitStack
         self._shutdown = False
 
     async def _aenter(self, daemon=False):
-        if daemon and self._open_count == 0:
-            raise RuntimeError("The client is not active, first use of the client must not be daemon")
-        if self._shutdown:
-            raise RuntimeError("Cannot reuse a client after it was once shut down")
+        async with AsyncExitStack() as enter_stack:
+            if daemon and self._open_count == 0:
+                raise RuntimeError("The client is not active, first use of the client must not be daemon")
+            if self._shutdown:
+                raise RuntimeError("Cannot reuse a client after it was once shut down")
 
-        self._open_count += 1
-        if daemon:
-            self._daemon_count += 1
+            self._open_count += 1
 
-        if self._open_count == 1:
-            # can't just do this:
-            #   await self._exit_stack.enter_context(super(AsyncClient, self))
-            # as a super(...) object's type does not have __aenter__/__aexit__.
-            # That the super object itself has these is not relevant.
+            @enter_stack.callback
+            async def decrement_open_count():
+                self._open_count -= 1
 
-            await super(AsyncClient, self).__aenter__()
-            self._exit_stack.push(super(AsyncClient, self).__aexit__)
+            if daemon:
+                self._daemon_count += 1
 
-            if threading.current_thread() is threading.main_thread():
-                loop = asyncio.get_event_loop()
+                @enter_stack.callback
+                async def decrement_daemon_count():
+                    self._daemon_count -= 1
 
-                def sigint_handler():
-                    task = loop.create_task(self.shutdown())
+            if self._open_count == 1:
+                async with AsyncExitStack() as stack:
+                    # can't just do this:
+                    #   await stack.enter_context(super(AsyncClient, self))
+                    # as a super(...) object's type does not have __aenter__/__aexit__.
+                    # That the super object itself has these is not relevant.
 
-                    @self._exit_stack.callback
-                    async def await_shutdown():
-                        await task
+                    await super(AsyncClient, self).__aenter__()
+                    stack.push(super(AsyncClient, self).__aexit__)
 
-                old_handler = signal.getsignal(signal.SIGINT)
-                if old_handler is None:
-                    # None means that the previous signal handler was not installed from Python
-                    # it's not legal to pass None to signal(), so restore the default
-                    logger.warning("Removing a signal handler that can't be restored")
-                    old_handler = signal.SIG_DFL
-                loop.add_signal_handler(signal.SIGINT, sigint_handler)
+                    if threading.current_thread() is threading.main_thread():
+                        loop = asyncio.get_event_loop()
 
-                @self._exit_stack.callback
-                async def remove_sigint_handler():
-                    loop.remove_signal_handler(signal.SIGINT)
-                    signal.signal(signal.SIGINT, old_handler)
+                        def sigint_handler():
+                            task = loop.create_task(self.shutdown())
 
-        return self
+                            # if this signal handler is called during _aenter, register the await with `stack`;
+                            # otherwise, with `self._exit_stack`
+                            exit_stack = self._exit_stack if self._exit_stack is not None else stack
+
+                            @exit_stack.callback
+                            async def await_shutdown():
+                                await task
+
+                        old_handler = signal.getsignal(signal.SIGINT)
+                        if old_handler is None:
+                            # None means that the previous signal handler was not installed from Python
+                            # it's not legal to pass None to signal(), so restore the default
+                            logger.warning("Removing a signal handler that can't be restored")
+                            old_handler = signal.SIG_DFL
+                        loop.add_signal_handler(signal.SIGINT, sigint_handler)
+
+                        @stack.callback
+                        async def remove_sigint_handler():
+                            loop.remove_signal_handler(signal.SIGINT)
+                            signal.signal(signal.SIGINT, old_handler)
+
+                    # save the exit actions that need undoing...
+                    self._exit_stack = stack.pop_all()
+
+            # ...and discard those that were only for the error case
+            enter_stack.pop_all()
+            return self
 
     async def _aexit(self, exc_type, exc_val, exc_tb, daemon=False):
-        if daemon:
-            self._daemon_count -= 1
+        stack = AsyncExitStack()
 
-        if self._open_count - 1 == self._daemon_count:
-            await self.shutdown()
-        if self._open_count == 1:
-            await self._exit_stack.__aexit__(exc_type, exc_val, exc_tb)
-        self._open_count -= 1
+        # called last
+        @stack.callback
+        async def decrement_open_count():
+            self._open_count -= 1
+
+        @stack.push
+        async def exit(exc_type, exc_val, exc_tb):
+            if self._open_count == 1:
+                try:
+                    return await self._exit_stack.__aexit__(exc_type, exc_val, exc_tb)
+                finally:
+                    self._exit_stack = None
+
+        @stack.callback
+        async def shutdown():
+            if self._open_count - 1 == self._daemon_count:
+                await self.shutdown()
+
+        # called first
+        @stack.callback
+        async def decrement_daemon_count():
+            if daemon:
+                self._daemon_count -= 1
+
+        return await stack.__aexit__(exc_type, exc_val, exc_tb)
 
     async def __aenter__(self):
         return await self._aenter()
