@@ -88,6 +88,23 @@ async def test_overlapping_contexts(start_server, connect_client):
 
 
 @pytest.mark.asyncio
+async def test_daemon_context(start_server, connect_client):
+    async with start_server() as server:
+        async with connect_client(server) as client:
+            async def do_something():
+                assert await client.get_analog(0) == 0
+                await asyncio.sleep(2)
+                with pytest.raises(errors.HedgehogCommandError):
+                    await client.get_analog(0)
+
+            task = await client.spawn(do_something(), daemon=True)
+            await asyncio.sleep(1)
+        await task
+
+
+# tests for failures
+
+@pytest.mark.asyncio
 async def test_inactive_context(zmq_aio_ctx: zmq.asyncio.Context, start_server):
     async with start_server() as server:
         client = HedgehogClient(zmq_aio_ctx, server)
@@ -108,8 +125,11 @@ async def test_shutdown_context(connect_server):
         async def do_something():
             assert await client.get_analog(0) == 0
             await asyncio.sleep(2)
-            with pytest.raises(errors.HedgehogCommandError):
+            with pytest.raises(errors.EmergencyShutdown):
                 await client.get_analog(0)
+
+            # this should not raise an exception into `await task`
+            raise errors.EmergencyShutdown()
 
         task = await client.spawn(do_something())
 
@@ -117,25 +137,14 @@ async def test_shutdown_context(connect_server):
         await asyncio.sleep(1)
         await client.shutdown()
 
-        with pytest.raises(errors.HedgehogCommandError):
+        with pytest.raises(errors.EmergencyShutdown):
             await client.get_analog(0)
 
+        # this should not raise an exception from `do_something`
         await task
 
-
-@pytest.mark.asyncio
-async def test_daemon_context(start_server, connect_client):
-    async with start_server() as server:
-        async with connect_client(server) as client:
-            async def do_something():
-                assert await client.get_analog(0) == 0
-                await asyncio.sleep(2)
-                with pytest.raises(errors.HedgehogCommandError):
-                    await client.get_analog(0)
-
-            task = await client.spawn(do_something(), daemon=True)
-            await asyncio.sleep(1)
-        await task
+        # this should not raise an exception out of the `async with` block
+        raise errors.EmergencyShutdown()
 
 
 @pytest.mark.asyncio

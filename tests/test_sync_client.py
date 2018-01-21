@@ -75,6 +75,22 @@ def test_overlapping_contexts(start_server_sync, connect_client):
         thread.join()
 
 
+def test_daemon_context(start_server_sync, connect_client):
+    with start_server_sync() as server:
+        with connect_client(server) as client:
+            def do_something():
+                assert client.get_analog(0) == 0
+                time.sleep(0.2)
+                with pytest.raises(errors.HedgehogCommandError):
+                    assert client.get_analog(0) == 0
+
+            thread = client.spawn(do_something, daemon=True)
+            time.sleep(0.1)
+        thread.join()
+
+
+# tests for failures
+
 def test_inactive_context(zmq_aio_ctx: zmq.asyncio.Context, start_server_sync):
     with start_server_sync() as server:
         client = HedgehogClient(zmq_aio_ctx, server)
@@ -94,29 +110,20 @@ def test_shutdown_context(connect_server):
         def do_something():
             assert client.get_analog(0) == 0
             time.sleep(0.2)
-            with pytest.raises(errors.HedgehogCommandError):
+            with pytest.raises(errors.EmergencyShutdown):
                 assert client.get_analog(0) == 0
 
         thread = client.spawn(do_something, daemon=True)
         time.sleep(0.1)
         client.shutdown()
-        with pytest.raises(errors.HedgehogCommandError):
+        with pytest.raises(errors.EmergencyShutdown):
             assert client.get_analog(0) == 0
-    thread.join()
 
-
-def test_daemon_context(start_server_sync, connect_client):
-    with start_server_sync() as server:
-        with connect_client(server) as client:
-            def do_something():
-                assert client.get_analog(0) == 0
-                time.sleep(0.2)
-                with pytest.raises(errors.HedgehogCommandError):
-                    assert client.get_analog(0) == 0
-
-            thread = client.spawn(do_something, daemon=True)
-            time.sleep(0.1)
         thread.join()
+
+        # this should not raise an exception out of the `with` block
+        raise errors.EmergencyShutdown()
+
 
 
 def test_unsupported(connect_server):
