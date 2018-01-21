@@ -72,13 +72,11 @@ class SyncClient(object):
         stack = ExitStack()
 
         # called last
-        # if the client is now closed, exit the loop; otherwise, do nothing
         @stack.push
         def exit_loop(exc_type, exc_val, exc_tb):
             if self.client.is_closed:
                 self._loop.__exit__(exc_type, exc_val, exc_tb)
 
-        # remove the signal handler installed
         @stack.callback
         def remove_sigint_handler():
             # TODO the main thread is not necessarily the last thread to finish.
@@ -86,13 +84,18 @@ class SyncClient(object):
             if threading.current_thread() is threading.main_thread():
                 signal.signal(signal.SIGINT, signal.SIG_DFL)
 
-        # called first
         # exit the client with the given daemon-ness, maybe leading the client to close
         @stack.push
         def exit_client(exc_type, exc_val, exc_tb):
             self._call(self.client._aexit(exc_type, exc_val, exc_tb, daemon=daemon))
 
-        # unwind the artificially created stack
+        # called first
+        @stack.push
+        def suppress_shutdown_error(exc_type, exc_val, exc_tb):
+            if exc_type == errors.EmergencyShutdown:
+                print(exc_val)
+                return True
+
         return stack.__exit__(exc_type, exc_val, exc_tb)
 
     def __enter__(self):
@@ -220,20 +223,14 @@ def connect(endpoint='tcp://127.0.0.1:10789', emergency=None,
     with client_class(ctx, endpoint) as client:
         # TODO a remote application's emergency_stop is remote, so it won't work in case of a disconnection!
         def emergency_stop():
-            try:
-                client.set_input_state(emergency, True)
-                # while not client.get_digital(emergency):
-                while client.get_digital(emergency):
-                    time.sleep(0.1)
+            client.set_input_state(emergency, True)
+            # while not client.get_digital(emergency):
+            while client.get_digital(emergency):
+                time.sleep(0.1)
 
-                os.kill(os.getpid(), signal.SIGINT)
-            except errors.EmergencyShutdown:
-                pass
+            os.kill(os.getpid(), signal.SIGINT)
 
         if emergency is not None:
             client.spawn(emergency_stop, name="emergency_stop", daemon=True)
 
-        try:
-            yield client
-        except errors.EmergencyShutdown as ex:
-            print(ex)
+        yield client

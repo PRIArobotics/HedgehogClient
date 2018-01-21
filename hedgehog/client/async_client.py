@@ -120,11 +120,17 @@ class AsyncClient(Actor):
             if self._open_count - 1 == self._daemon_count:
                 await self.shutdown()
 
-        # called first
         @stack.callback
         async def decrement_daemon_count():
             if daemon:
                 self._daemon_count -= 1
+
+        # called first
+        @stack.push
+        async def suppress_shutdown_error(exc_type, exc_val, exc_tb):
+            if exc_type == errors.EmergencyShutdown:
+                print(exc_val)
+                return True
 
         return await stack.__aexit__(exc_type, exc_val, exc_tb)
 
@@ -132,7 +138,7 @@ class AsyncClient(Actor):
         return await self._aenter()
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        await self._aexit(exc_type, exc_val, exc_tb)
+        return await self._aexit(exc_type, exc_val, exc_tb)
 
     @property
     @async_context_manager
@@ -353,20 +359,14 @@ async def connect(endpoint='tcp://127.0.0.1:10789', emergency=None,
     async with client_class(ctx, endpoint) as client:
         # TODO a remote application's emergency_stop is remote, so it won't work in case of a disconnection!
         async def emergency_stop():
-            try:
-                await client.set_input_state(emergency, True)
-                # while not client.get_digital(emergency):
-                while await client.get_digital(emergency):
-                    await asyncio.sleep(0.1)
+            await client.set_input_state(emergency, True)
+            # while not client.get_digital(emergency):
+            while await client.get_digital(emergency):
+                await asyncio.sleep(0.1)
 
-                os.kill(os.getpid(), signal.SIGINT)
-            except errors.EmergencyShutdown:
-                pass
+            os.kill(os.getpid(), signal.SIGINT)
 
         if emergency is not None:
             await client.spawn(emergency_stop(), daemon=True)
 
-        try:
-            yield client
-        except errors.EmergencyShutdown as ex:
-            print(ex)
+        yield client
