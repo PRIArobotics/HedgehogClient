@@ -20,6 +20,8 @@ from hedgehog.utils.asyncio import pipe
 event_loop, zmq_aio_ctx, start_dummy, start_server
 
 
+# additional fixtures
+
 @pytest.fixture
 def connect_client(zmq_aio_ctx: zmq.asyncio.Context):
     @async_context_manager
@@ -53,6 +55,8 @@ def connect_server(start_server, connect_client):
 
     return do_connect
 
+
+# tests
 
 @pytest.mark.asyncio
 async def test_concurrent_commands(connect_server):
@@ -140,6 +144,8 @@ async def test_unsupported(connect_server):
         with pytest.raises(errors.UnsupportedCommandError):
             await client.get_analog(0)
 
+
+# API tests
 
 class TestHedgehogClientAPI(object):
     @pytest.mark.asyncio

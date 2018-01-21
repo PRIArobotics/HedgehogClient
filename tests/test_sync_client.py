@@ -19,6 +19,8 @@ from hedgehog.server.hardware import HardwareAdapter
 zmq_aio_ctx, start_dummy, start_dummy_sync, start_server, start_server_sync
 
 
+# additional fixtures
+
 @pytest.fixture
 def connect_client(zmq_aio_ctx: zmq.asyncio.Context):
     @contextmanager
@@ -52,6 +54,8 @@ def connect_server(start_server_sync, connect_client):
 
     return do_connect
 
+
+# tests
 
 def test_connect(connect_server):
     with connect_server() as client:
@@ -114,6 +118,14 @@ def test_daemon_context(start_server_sync, connect_client):
             time.sleep(0.1)
         thread.join()
 
+
+def test_unsupported(connect_server):
+    with connect_server(hardware_adapter=HardwareAdapter()) as client:
+        with pytest.raises(errors.UnsupportedCommandError):
+            client.get_analog(0)
+
+
+# API tests
 
 class TestHedgehogClientAPI(object):
     def test_set_input_state(self, connect_dummy):
