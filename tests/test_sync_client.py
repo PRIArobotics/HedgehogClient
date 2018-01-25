@@ -105,6 +105,19 @@ def test_inactive_context(zmq_aio_ctx: zmq.asyncio.Context, start_server_sync):
             client.get_analog(0)
 
 
+def test_daemon_context_first(zmq_aio_ctx: zmq.asyncio.Context, start_server_sync):
+    with start_server_sync() as server:
+        client = HedgehogClient(zmq_aio_ctx, server)
+
+        with pytest.raises(RuntimeError):
+            with client.daemon:
+                pass
+
+        # confirm the client works after a failure
+        with client:
+            assert client.get_analog(0) == 0
+
+
 def test_shutdown_context(connect_server):
     with connect_server() as client:
         def do_something():
@@ -124,6 +137,17 @@ def test_shutdown_context(connect_server):
         # this should not raise an exception out of the `with` block
         raise errors.EmergencyShutdown()
 
+
+def test_reuse_after_shutdown(zmq_aio_ctx: zmq.asyncio.Context, start_server_sync):
+    with start_server_sync() as server:
+        client = HedgehogClient(zmq_aio_ctx, server)
+
+        with client:
+            assert client.get_analog(0) == 0
+
+        with pytest.raises(RuntimeError):
+            with client:
+                pass
 
 
 def test_unsupported(connect_server):

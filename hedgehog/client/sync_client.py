@@ -46,6 +46,10 @@ class SyncClient(object):
                 @enter_stack.callback
                 def clear_client():
                     self.client = None
+            elif self.client.is_shutdown:
+                # necessary because we can't use the event loop thread - which is already closed in this case -
+                # to try and start the client, which would then fail with this error
+                raise RuntimeError("Cannot reuse a client after it was once shut down")
 
             if threading.current_thread() is threading.main_thread():
                 def sigint_handler(signal, frame):
