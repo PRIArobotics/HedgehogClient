@@ -145,11 +145,13 @@ async def test_shutdown_context(connect_server):
             # this should not raise an exception into `await task`
             raise errors.EmergencyShutdown()
 
-        task = await client.spawn(do_something())
+        assert not client.is_shutdown and not client.is_closed
 
-        assert await client.get_analog(0) == 0
+        task = await client.spawn(do_something())
         await asyncio.sleep(1)
         await client.shutdown()
+
+        assert client.is_shutdown and not client.is_closed
 
         with pytest.raises(errors.EmergencyShutdown):
             await client.get_analog(0)
@@ -159,6 +161,8 @@ async def test_shutdown_context(connect_server):
 
         # this should not raise an exception out of the `async with` block
         raise errors.EmergencyShutdown()
+
+    assert client.is_shutdown and client.is_closed
 
 
 @pytest.mark.asyncio
@@ -172,6 +176,9 @@ async def test_reuse_after_shutdown(zmq_aio_ctx: zmq.asyncio.Context, start_serv
         with pytest.raises(RuntimeError):
             async with client:
                 pass
+
+        with pytest.raises(RuntimeError):
+            await client.shutdown()
 
 
 @pytest.mark.asyncio

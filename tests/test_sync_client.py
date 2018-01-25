@@ -126,9 +126,14 @@ def test_shutdown_context(connect_server):
             with pytest.raises(errors.EmergencyShutdown):
                 assert client.get_analog(0) == 0
 
+        assert not client.is_shutdown and not client.is_closed
+
         thread = client.spawn(do_something, daemon=True)
         time.sleep(0.1)
         client.shutdown()
+
+        assert client.is_shutdown and not client.is_closed
+
         with pytest.raises(errors.EmergencyShutdown):
             assert client.get_analog(0) == 0
 
@@ -136,6 +141,8 @@ def test_shutdown_context(connect_server):
 
         # this should not raise an exception out of the `with` block
         raise errors.EmergencyShutdown()
+
+    assert client.is_shutdown and client.is_closed
 
 
 def test_reuse_after_shutdown(zmq_aio_ctx: zmq.asyncio.Context, start_server_sync):
@@ -148,6 +155,9 @@ def test_reuse_after_shutdown(zmq_aio_ctx: zmq.asyncio.Context, start_server_syn
         with pytest.raises(RuntimeError):
             with client:
                 pass
+
+        with pytest.raises(RuntimeError):
+            client.shutdown()
 
 
 def test_faulty_client(zmq_aio_ctx: zmq.asyncio.Context, start_server_sync):
