@@ -175,6 +175,35 @@ async def test_reuse_after_shutdown(zmq_aio_ctx: zmq.asyncio.Context, start_serv
 
 
 @pytest.mark.asyncio
+async def test_faulty_client(zmq_aio_ctx: zmq.asyncio.Context, start_server):
+    async with start_server() as server:
+        class MyException(Exception):
+            pass
+
+        faulty = True
+
+        class FaultyClient(HedgehogClient):
+            async def run(self, cmd_pipe, evt_pipe):
+                if faulty:
+                    raise MyException()
+                else:
+                    return await super(FaultyClient, self).run(cmd_pipe, evt_pipe)
+
+        client = FaultyClient(zmq_aio_ctx, server)
+
+        with pytest.raises(MyException):
+            async with client:
+                pass
+
+        assert client._open_count == 0
+        faulty = False
+
+        async with client:
+            assert await client.get_analog(0) == 0
+
+
+
+@pytest.mark.asyncio
 async def test_unsupported(connect_server):
     async with connect_server(hardware_adapter=HardwareAdapter()) as client:
         with pytest.raises(errors.UnsupportedCommandError):

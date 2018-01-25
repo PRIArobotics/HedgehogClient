@@ -51,9 +51,11 @@ class AsyncClient(Actor):
             if daemon:
                 self._daemon_count += 1
 
+                # testing: I see no good way to cause a fault that triggers this...
+                # the code is almost the same as decrement_open_count, so ignore it for coverage
                 @enter_stack.callback
                 async def decrement_daemon_count():
-                    self._daemon_count -= 1
+                    self._daemon_count -= 1  # pragma: nocover
 
             if self._open_count == 1:
                 async with AsyncExitStack() as stack:
