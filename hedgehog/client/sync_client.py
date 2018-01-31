@@ -64,7 +64,7 @@ class SyncClient(object):
                 signal.signal(signal.SIGINT, sigint_handler)
 
                 @enter_stack.callback
-                async def remove_sigint_handler():
+                def remove_sigint_handler():
                     signal.signal(signal.SIGINT, old_handler)
 
             self._call(self.client._aenter(daemon=daemon))
@@ -85,6 +85,7 @@ class SyncClient(object):
         def remove_sigint_handler():
             # TODO the main thread is not necessarily the last thread to finish.
             # Should the signal handler be removed in case it isn't?
+            # Also, we should restore the original handler here, not simply set the default
             if threading.current_thread() is threading.main_thread():
                 signal.signal(signal.SIGINT, signal.SIG_DFL)
 
