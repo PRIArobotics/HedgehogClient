@@ -8,11 +8,12 @@ import time
 import zmq.asyncio
 from contextlib import contextmanager
 
-from hedgehog.client.sync_client import HedgehogClient
+from hedgehog.client.sync_client import HedgehogClient, connect
 from hedgehog.protocol import errors
 from hedgehog.protocol.messages import io, motor, process
 from hedgehog.protocol.sockets import DealerRouterSocket
 from hedgehog.server.hardware import HardwareAdapter
+from hedgehog.server.hardware.mocked import MockedHardwareAdapter
 
 
 # Pytest fixtures
@@ -87,6 +88,19 @@ def test_daemon_context(start_server_sync, connect_client):
             thread = client.spawn(do_something, daemon=True)
             time.sleep(0.1)
         thread.join()
+
+
+def test_connect(event_loop, zmq_aio_ctx: zmq.asyncio.Context, start_server_sync):
+    hardware_adapter = MockedHardwareAdapter()
+    hardware_adapter.set_digital(15, event_loop.time() - 0.1, True)
+    hardware_adapter.set_digital(15, event_loop.time() + 0.2, False)
+    with start_server_sync(hardware_adapter=hardware_adapter) as server:
+        with connect(server, emergency=15, ctx=zmq_aio_ctx) as client:
+            assert client.get_analog(0) == 0
+
+            time.sleep(0.3)
+            with pytest.raises(errors.EmergencyShutdown):
+                assert client.get_analog(0) == 0
 
 
 # tests for failures

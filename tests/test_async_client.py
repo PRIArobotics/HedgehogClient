@@ -8,7 +8,7 @@ import asyncio
 import zmq.asyncio
 from aiostream.context_utils import async_context_manager
 
-from hedgehog.client.async_client import HedgehogClient
+from hedgehog.client.async_client import HedgehogClient, connect
 from hedgehog.protocol import errors
 from hedgehog.protocol.messages import io, motor, process
 from hedgehog.protocol.async_sockets import DealerRouterSocket
@@ -100,6 +100,23 @@ async def test_daemon_context(start_server, connect_client):
             task = await client.spawn(do_something(), daemon=True)
             await asyncio.sleep(1)
         await task
+
+
+@pytest.mark.asyncio
+async def test_connect(zmq_aio_ctx: zmq.asyncio.Context, start_server):
+    hardware_adapter = MockedHardwareAdapter()
+    hardware_adapter.set_digital(15, 0, True)
+    hardware_adapter.set_digital(15, 1, False)
+    async with start_server(hardware_adapter=hardware_adapter) as server:
+        async with connect(server, emergency=15, ctx=zmq_aio_ctx) as client:
+            assert await client.get_analog(0) == 0
+
+            await asyncio.sleep(2)
+            # signals don't play nicely with the simulated time of the loop.
+            # sleep again after the signal interrupted the original sleep.
+            await asyncio.sleep(1)
+            with pytest.raises(errors.EmergencyShutdown):
+                assert await client.get_analog(0) == 0
 
 
 # tests for failures
