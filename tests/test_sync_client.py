@@ -103,6 +103,23 @@ def test_connect(event_loop, zmq_aio_ctx: zmq.asyncio.Context, start_server_sync
                 assert client.get_analog(0) == 0
 
 
+def test_connect_multiple(event_loop, zmq_aio_ctx: zmq.asyncio.Context, start_server_sync):
+    hardware_adapter = MockedHardwareAdapter()
+    hardware_adapter.set_digital(15, event_loop.time() - 0.1, True)
+    hardware_adapter.set_digital(15, event_loop.time() + 0.2, False)
+    with start_server_sync(hardware_adapter=hardware_adapter) as server:
+        with connect(server, emergency=15, ctx=zmq_aio_ctx) as client1, \
+                connect(server, emergency=15, ctx=zmq_aio_ctx) as client2:
+            assert client1.get_analog(0) == 0
+            assert client2.get_analog(0) == 0
+
+            time.sleep(0.3)
+            with pytest.raises(errors.EmergencyShutdown):
+                assert client1.get_analog(0) == 0
+            with pytest.raises(errors.EmergencyShutdown):
+                assert client2.get_analog(0) == 0
+
+
 # tests for failures
 
 def test_inactive_context(zmq_aio_ctx: zmq.asyncio.Context, start_server_sync):

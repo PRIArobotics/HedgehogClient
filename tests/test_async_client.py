@@ -119,6 +119,27 @@ async def test_connect(zmq_aio_ctx: zmq.asyncio.Context, start_server):
                 assert await client.get_analog(0) == 0
 
 
+@pytest.mark.asyncio
+async def test_connect_multiple(zmq_aio_ctx: zmq.asyncio.Context, start_server):
+    hardware_adapter = MockedHardwareAdapter()
+    hardware_adapter.set_digital(15, 0, True)
+    hardware_adapter.set_digital(15, 1, False)
+    async with start_server(hardware_adapter=hardware_adapter) as server:
+        async with connect(server, emergency=15, ctx=zmq_aio_ctx) as client1, \
+                connect(server, emergency=15, ctx=zmq_aio_ctx) as client2:
+            assert await client1.get_analog(0) == 0
+            assert await client2.get_analog(0) == 0
+
+            await asyncio.sleep(2)
+            # signals don't play nicely with the simulated time of the loop.
+            # sleep again after the signal interrupted the original sleep.
+            await asyncio.sleep(1)
+            with pytest.raises(errors.EmergencyShutdown):
+                assert await client1.get_analog(0) == 0
+            with pytest.raises(errors.EmergencyShutdown):
+                assert await client2.get_analog(0) == 0
+
+
 # tests for failures
 
 @pytest.mark.asyncio
