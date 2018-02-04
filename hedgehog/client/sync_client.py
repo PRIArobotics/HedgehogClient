@@ -13,7 +13,7 @@ from functools import partial
 from hedgehog.utils.event_loop import EventLoopThread
 from hedgehog.protocol import errors
 from hedgehog.protocol.messages import motor
-from . import async_client
+from . import async_client, shutdown_handler
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +26,7 @@ class SyncClient(object):
         self.ctx = ctx
         self.endpoint = endpoint
         self.client = None  # type: async_client.AsyncClient
+        self._signal_ctx = None
 
     def _create_client(self):
         return async_client.AsyncClient(self.ctx, self.endpoint)  # pragma: nocover
@@ -55,17 +56,9 @@ class SyncClient(object):
                 def sigint_handler(signal, frame):
                     self.shutdown()
 
-                old_handler = signal.getsignal(signal.SIGINT)
-                if old_handler is None:
-                    # None means that the previous signal handler was not installed from Python
-                    # it's not legal to pass None to signal(), so restore the default
-                    logger.warning("Removing a signal handler that can't be restored")
-                    old_handler = signal.SIG_DFL
-                signal.signal(signal.SIGINT, sigint_handler)
-
-                @enter_stack.callback
-                def remove_sigint_handler():
-                    signal.signal(signal.SIGINT, old_handler)
+                ctx = shutdown_handler.register(signal.SIGINT, sigint_handler)
+                enter_stack.enter_context(ctx)
+                self._signal_ctx = ctx
 
             self._call(self.client._aenter(daemon=daemon))
             # all went well, so don't exit the loop (if it was entered in this call)
@@ -81,13 +74,10 @@ class SyncClient(object):
             if self.client.is_closed:
                 self._loop.__exit__(exc_type, exc_val, exc_tb)
 
-        @stack.callback
-        def remove_sigint_handler():
+        if threading.current_thread() is threading.main_thread():
             # TODO the main thread is not necessarily the last thread to finish.
             # Should the signal handler be removed in case it isn't?
-            # Also, we should restore the original handler here, not simply set the default
-            if threading.current_thread() is threading.main_thread():
-                signal.signal(signal.SIGINT, signal.SIG_DFL)
+            stack.push(self._signal_ctx)
 
         # exit the client with the given daemon-ness, maybe leading the client to close
         @stack.push

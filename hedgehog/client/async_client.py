@@ -13,6 +13,7 @@ from hedgehog.utils.asyncio import Actor
 from hedgehog.protocol import errors, ClientSide
 from hedgehog.protocol.async_sockets import DealerRouterSocket
 from hedgehog.protocol.messages import Message, ack, io, analog, digital, motor, servo, process
+from . import shutdown_handler
 from .async_handlers import EventHandler, HandlerRegistry, process_handler
 
 logger = logging.getLogger(__name__)
@@ -81,18 +82,13 @@ class AsyncClient(Actor):
                             async def await_shutdown():
                                 await task
 
-                        old_handler = signal.getsignal(signal.SIGINT)
-                        if old_handler is None:
-                            # None means that the previous signal handler was not installed from Python
-                            # it's not legal to pass None to signal(), so restore the default
-                            logger.warning("Removing a signal handler that can't be restored")
-                            old_handler = signal.SIG_DFL
-                        loop.add_signal_handler(signal.SIGINT, sigint_handler)
+                        # wrap register_async in an async context manager
+                        @async_context_manager
+                        async def shutdown_handler_wrapper(signalnum, callback):
+                            with shutdown_handler.register_async(signalnum, callback):
+                                yield
 
-                        @stack.callback
-                        async def remove_sigint_handler():
-                            loop.remove_signal_handler(signal.SIGINT)
-                            signal.signal(signal.SIGINT, old_handler)
+                        await stack.enter_context(shutdown_handler_wrapper(signal.SIGINT, sigint_handler))
 
                     # save the exit actions that need undoing...
                     self._exit_stack = stack.pop_all()
