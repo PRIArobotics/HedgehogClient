@@ -1,4 +1,4 @@
-from typing import cast, Any, Callable, Dict, List, Sequence, Set, Tuple, Type
+from typing import cast, Any, Callable, Dict, Generator, List, Sequence, Set, Tuple, Type, Union
 
 import zmq
 from contextlib import contextmanager
@@ -7,7 +7,6 @@ from queue import Queue
 from hedgehog.protocol import errors
 from hedgehog.protocol.messages import ReplyMsg, Message, ack, motor, process
 from hedgehog.protocol.sockets import ReqSocket
-from hedgehog.utils import coroutine
 from hedgehog.utils.zmq.actor import CommandRegistry
 from hedgehog.utils.zmq.pipe import pipe
 
@@ -27,55 +26,75 @@ def _update_key(update: Message) -> Tuple[Type[Message], Any]:
     return cls, _update_keys[cls](update)
 
 
-class _EventHandler(object):
-    def __init__(self, backend, handler: Callable[[Message], None]) -> None:
-        self.pipe, self._pipe = pipe(backend.ctx)
-        self.handler = handler
+@contextmanager
+def _event_handler(backend, handler: Generator[None, Message, None]):
+    def gen():
+        pipe_a, pipe_b = pipe(backend.ctx)
 
-    def run(self) -> None:
-        registry = CommandRegistry()
-        running = True
+        def is_shutdown():
+            if pipe_a.closed:
+                return True
 
-        @registry.command(b'UPDATE')
-        def handle_update(update_raw) -> None:
-            update = ReplyMsg.parse(update_raw)  # type: Message
-            self.handler(update)
+            try:
+                msg = pipe_a.recv(zmq.NOBLOCK)
+            except zmq.Again:
+                return False
+            else:
+                assert msg == b'$TERM'
+                pipe_a.close()
+                return True
 
-        @registry.command(b'$TERM')
-        def handle_term() -> None:
-            nonlocal running
-            running = False
+        def run() -> None:
+            registry = CommandRegistry()
+            running = True
 
-        while running:
-            registry.handle(self._pipe.recv_multipart())
-        self._pipe.close()
+            @registry.command(b'UPDATE')
+            def handle_update(update_raw) -> None:
+                update = ReplyMsg.parse(update_raw)
+                try:
+                    handler.send(update)
+                except StopIteration:
+                    nonlocal running
+                    running = False
 
-    def update(self, update: Message) -> None:
-        self.pipe.send_multipart([b'UPDATE', ReplyMsg.serialize(update)])
+            @registry.command(b'$TERM')
+            def handle_term() -> None:
+                handler.close()
+                nonlocal running
+                running = False
 
-    def shutdown(self) -> None:
-        if not self.pipe.closed:
-            self.pipe.send(b'$TERM')
-            self.pipe.close()
+            with pipe_b:
+                try:
+                    next(handler)
+                    while running:
+                        registry.handle(pipe_b.recv_multipart())
+                finally:
+                    pipe_b.send(b'$TERM')
+
+        backend.spawn(run, async=True)
+        try:
+            while True:
+                update = yield  # type: Message
+                if is_shutdown():
+                    break
+                pipe_a.send_multipart([b'UPDATE', ReplyMsg.serialize(update)])
+        finally:
+            if not is_shutdown():
+                pipe_a.send(b'$TERM')
+                pipe_a.recv_expect(b'$TERM')
+                pipe_a.close()
+
+    _handler = gen()
+    try:
+        next(_handler)
+        yield _handler
+    finally:
+        _handler.close()
 
 
-class EventHandler(object):
-    events = None  # type: Set[Tuple[Type[Message], Any]]
-    _is_shutdown = False
-
-    def initialize(self, backend, reply: Message) -> None:
-        raise NotImplementedError()  # pragma: nocover
-
-    def update(self, update: Message) -> None:
-        raise NotImplementedError()  # pragma: nocover
-
-    def shutdown(self) -> None:
-        if not self._is_shutdown:
-            self._is_shutdown = True
-            self._shutdown()
-
-    def _shutdown(self) -> None:
-        raise NotImplementedError()  # pragma: nocover
+EventHandler = Generator[Set[Tuple[Type[Message], Any]],
+                         Union[Tuple['client_backend.ClientBackend', Message], Message, None],
+                         None]
 
 
 # class MotorUpdateHandler(EventHandler):
@@ -106,75 +125,59 @@ class EventHandler(object):
 #         self.handler.shutdown()
 
 
-class ProcessUpdateHandler(EventHandler):
-    pid = None
-    stdout_handler = None
-    stderr_handler = None
+def process_handler(on_stdout, on_stderr, on_exit):
+    # initialize
+    backend, reply = yield
 
-    def __init__(self, on_stdout, on_stderr, on_exit):
-        self.on_stdout = on_stdout
-        self.on_stderr = on_stderr
-        self.on_exit = on_exit
+    pid = reply.pid
+    events = {(process.StreamUpdate, pid),
+              (process.ExitUpdate, pid)}
 
-    def initialize(self, backend, reply):
-        self.pid = reply.pid
-        self.events = {(process.StreamUpdate, self.pid),
-                       (process.ExitUpdate, self.pid)}
+    exit_a, exit_b = pipe(backend.ctx)
 
-        exit_a, exit_b = pipe(backend.ctx)
-
-        @coroutine
-        def handle_stdout_exit():
+    def handle_stdout_exit():
+        with exit_a:
             while True:
-                update, = yield
-                if self.on_stdout is not None:
-                    self.on_stdout(self.pid, update.fileno, update.chunk)
+                update = yield
+                if on_stdout is not None:
+                    on_stdout(pid, update.fileno, update.chunk)
                 if update.chunk == b'':
                     break
 
-            update, = yield
+            update = yield
 
             exit_a.wait()
-            exit_a.close()
-            if self.on_exit is not None:
-                self.on_exit(self.pid, update.exit_code)
+            if on_exit is not None:
+                on_exit(pid, update.exit_code)
 
-            self.stdout_handler.shutdown()
-            yield
+    def handle_stderr():
+        with exit_b:
+            try:
+                while True:
+                    update = yield
+                    if on_stderr is not None:
+                        on_stderr(pid, update.fileno, update.chunk)
+                    if update.chunk == b'':
+                        break
+            finally:
+                exit_b.signal()
 
-        @coroutine
-        def handle_stderr():
-            while True:
-                update, = yield
-                if self.on_stderr is not None:
-                    self.on_stderr(self.pid, update.fileno, update.chunk)
-                if update.chunk == b'':
-                    break
+    with _event_handler(backend, handle_stdout_exit()) as stdout_handler, \
+            _event_handler(backend, handle_stderr()) as stderr_handler:
+        # update
+        update = yield events
+        while True:
+            if isinstance(update, process.StreamUpdate):
+                if update.fileno == process.STDOUT:
+                    stdout_handler.send(update)
+                else:
+                    stderr_handler.send(update)
+            elif isinstance(update, process.ExitUpdate):
+                stdout_handler.send(update)
+            else:  # pragma: nocover
+                assert False, update
 
-            exit_b.signal()
-            exit_b.close()
-            self.stderr_handler.shutdown()
-            yield
-
-        self.stdout_handler = _EventHandler(backend, handle_stdout_exit())
-        self.stderr_handler = _EventHandler(backend, handle_stderr())
-        backend.spawn(self.stdout_handler.run, async=True)
-        backend.spawn(self.stderr_handler.run, async=True)
-
-    def update(self, update):
-        if isinstance(update, process.StreamUpdate):
-            if update.fileno == process.STDOUT:
-                self.stdout_handler.update(update)
-            else:
-                self.stderr_handler.update(update)
-        elif isinstance(update, process.ExitUpdate):
-            self.stdout_handler.update(update)
-        else:  # pragma: nocover
-            assert False, update
-
-    def _shutdown(self):
-        self.stdout_handler.shutdown()
-        self.stderr_handler.shutdown()
+            update = yield
 
 
 _IDLE = 0
@@ -281,19 +284,21 @@ class ClientRegistry(object):
             if handler is None:
                 continue
             if isinstance(reply, ack.Acknowledgement) and reply.code != ack.OK:
+                handler.close()
                 continue
 
-            handler.initialize(backend, reply)
-            for event in handler.events:  # type: Tuple[Type[Message], Any]
+            next(handler)
+            events = handler.send((backend, reply))
+            for event in events:
                 if event in self._handlers:
-                    self._handlers[event].shutdown()
+                    self._handlers[event].close()
                 self._handlers[event] = handler
 
     def handle_async(self, update: Message) -> None:
         event = _update_key(update)
         if event in self._handlers:
-            self._handlers[event].update(update)
+            self._handlers[event].send(update)
 
     def shutdown(self) -> None:
         for handler in self._handlers.values():
-            handler.shutdown()
+            handler.close()

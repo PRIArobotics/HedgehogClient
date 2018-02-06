@@ -125,7 +125,7 @@ class ClientBackend(object):
 
             # either, all messages are replies corresponding to the previous requests,
             # or all messages are asynchronous updates
-            if msgs[0].async:
+            if msgs[0].is_async:
                 # handle asynchronous messages
                 for msg in msgs:
                     self.registry.handle_async(msg)

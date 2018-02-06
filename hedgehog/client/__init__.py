@@ -14,7 +14,7 @@ from hedgehog.protocol import errors
 from hedgehog.protocol.messages import Message, ack, io, analog, digital, motor, servo, process
 from pycreate2 import Create2
 from .client_backend import ClientBackend
-from .client_registry import EventHandler, ProcessUpdateHandler
+from .client_registry import EventHandler, process_handler
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +47,7 @@ class HedgehogClient(object):
     def spawn(self, callback, *args, name=None, daemon=False, **kwargs) -> None:
         self.backend.spawn(callback, *args, name=name, daemon=daemon, **kwargs)
 
-    def shutdown(self) -> None:
+    def shutdown(self) -> bool:
         """
         Shuts down the client's backend.
         A shutdown may occur normally in any thread, or in an interrupt handler on the main thread. If this is invoked
@@ -133,7 +133,7 @@ class HedgehogClient(object):
 
     def execute_process(self, *args: str, working_dir: str=None, on_stdout=None, on_stderr=None, on_exit=None) -> int:
         if on_stdout is not None or on_stderr is not None or on_exit is not None:
-            handler = ProcessUpdateHandler(on_stdout, on_stderr, on_exit)
+            handler = process_handler(on_stdout, on_stderr, on_exit)
         else:
             handler = None
         response = cast(process.ExecuteReply, self.send(process.ExecuteAction(*args, working_dir=working_dir), handler))
