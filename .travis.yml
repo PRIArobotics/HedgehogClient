@@ -14,4 +14,4 @@ install:
     - pip install -Ue .[test]
 
 # command to run tests
-script: nosetests -vw tests -e 'run_test'
+script: pytest
