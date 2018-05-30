@@ -28,7 +28,7 @@ def handler(adapter: HardwareAdapter=None) -> handlers.HandlerCallbackDict:
 def start_dummy(zmq_aio_ctx: zmq.asyncio.Context):
     @async_context_manager
     async def do_start(server_coro: Callable[[DealerRouterSocket], Awaitable[None]], *args,
-                          endpoint: str='inproc://controller', **kwargs):
+                       endpoint: str='inproc://controller', **kwargs):
         with DealerRouterSocket(zmq_aio_ctx, zmq.ROUTER, side=ServerSide) as socket:
             socket.bind(endpoint)
 
