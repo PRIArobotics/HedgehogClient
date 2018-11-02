@@ -46,12 +46,13 @@ setup(
     # your project is installed. For an analysis of "install_requires" vs pip's
     # requirements files see:
     # https://packaging.python.org/en/latest/requirements.html
-    install_requires=['hedgehog-protocol', 'hedgehog-utils[discovery]', 'pycreate2'],
+    install_requires=['hedgehog-protocol', 'hedgehog-utils', 'pycreate2'],
 
     # You can install these using the following syntax, for example:
     # $ pip install -e .[dev,test]
     extras_require={
-        'test': ['hedgehog-server', 'pytest', 'pytest-runner', 'pytest-asyncio', 'pytest-cov'],
+        'dev': ['hedgehog-server',
+                'pytest', 'pytest-runner', 'pytest-asyncio', 'pytest-cov', 'pytest-timeout', 'mypy'],
     },
 
     # package_data={
