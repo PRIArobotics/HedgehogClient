@@ -4,9 +4,9 @@ import pytest
 
 import asyncio
 import zmq.asyncio
-from contextlib import contextmanager
-from aiostream.context_utils import async_context_manager
+from contextlib import contextmanager, asynccontextmanager
 
+from concurrent_utils.event_loop_thread import EventLoopThread
 from hedgehog.protocol import ServerSide
 from hedgehog.protocol.async_sockets import DealerRouterSocket
 from hedgehog.protocol.messages import Message, ack, analog, digital, io, motor, servo, process
@@ -15,20 +15,19 @@ from hedgehog.server.handlers.hardware import HardwareHandler
 from hedgehog.server.handlers.process import ProcessHandler
 from hedgehog.server.hardware import HardwareAdapter
 from hedgehog.server.hardware.mocked import MockedHardwareAdapter
-from hedgehog.utils.event_loop import EventLoopThread
 
 
 def handler(adapter: HardwareAdapter=None) -> handlers.HandlerCallbackDict:
     if adapter is None:
         adapter = MockedHardwareAdapter()
-    return handlers.to_dict(HardwareHandler(adapter), ProcessHandler(adapter))
+    return handlers.merge(HardwareHandler(adapter), ProcessHandler(adapter))
 
 
 @pytest.fixture
 def start_dummy(zmq_aio_ctx: zmq.asyncio.Context):
-    @async_context_manager
+    @asynccontextmanager
     async def do_start(server_coro: Callable[[DealerRouterSocket], Awaitable[None]], *args,
-                          endpoint: str='inproc://controller', **kwargs):
+                       endpoint: str='inproc://controller', **kwargs):
         with DealerRouterSocket(zmq_aio_ctx, zmq.ROUTER, side=ServerSide) as socket:
             socket.bind(endpoint)
 
@@ -66,9 +65,9 @@ def start_dummy_sync(start_dummy):
 
 @pytest.fixture
 def start_server(zmq_aio_ctx: zmq.asyncio.Context):
-    @async_context_manager
+    @asynccontextmanager
     async def do_start(hardware_adapter: HardwareAdapter=None, endpoint: str='inproc://controller'):
-        async with HedgehogServer(zmq_aio_ctx, endpoint, handler(hardware_adapter)):
+        async with HedgehogServer.start(zmq_aio_ctx, endpoint, handler(hardware_adapter)):
             yield endpoint
 
     return do_start

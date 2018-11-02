@@ -1,4 +1,4 @@
-from typing import Callable, Coroutine, Tuple, TypeVar
+from typing import Awaitable, Callable, Tuple, TypeVar
 
 import concurrent.futures
 import logging
@@ -10,8 +10,7 @@ import zmq.asyncio
 from contextlib import contextmanager, ExitStack
 from functools import partial
 
-from hedgehog.utils.event_loop import EventLoopThread
-from hedgehog.protocol import errors
+from concurrent_utils.event_loop_thread import EventLoopThread
 from hedgehog.protocol.messages import motor
 from . import async_client, shutdown_handler
 
@@ -31,39 +30,51 @@ class SyncClient(object):
     def _create_client(self):
         return async_client.AsyncClient(self.ctx, self.endpoint)  # pragma: nocover
 
-    def _call(self, coro: Coroutine[None, None, T]) -> T:
+    def _call(self, coro: Awaitable[T]) -> T:
         return self._loop.run_coroutine(coro).result()
 
+    def _call_safe(self, coro_fun: Callable[[], Awaitable[T]]) -> T:
+        if self.client is None or self.client.is_closed:
+            raise RuntimeError("The client is not active, use `with client:`")
+        return self._call(coro_fun())
+
     def _enter(self, daemon=False):
-        with ExitStack() as enter_stack:
-            if self.client is None:
+        if self.client and self.client.is_shutdown:
+            # necessary because we can't use the event loop thread - which is already closed in this case -
+            # to try and start the client, which would then fail with this error
+            raise RuntimeError("Cannot reuse a client after it was once shut down")
+        elif self.client:
+            self._call(self.client._aenter(daemon=daemon))
+            return self
+        else:
+            with ExitStack() as enter_stack:
+                enter_stack.enter_context(self._loop)
+
                 async def create_client():
                     return self._create_client()
 
-                enter_stack.enter_context(self._loop)
                 # create the client on the event loop, to be sure the client uses the correct one
                 self.client = self._call(create_client())
 
                 @enter_stack.callback
                 def clear_client():
                     self.client = None
-            elif self.client.is_shutdown:
-                # necessary because we can't use the event loop thread - which is already closed in this case -
-                # to try and start the client, which would then fail with this error
-                raise RuntimeError("Cannot reuse a client after it was once shut down")
 
-            if threading.current_thread() is threading.main_thread():
-                def sigint_handler(signal, frame):
-                    self.shutdown()
+                if threading.current_thread() is threading.main_thread():
+                    def sigint_handler(signal, frame):
+                        self.shutdown()
 
-                ctx = shutdown_handler.register(signal.SIGINT, sigint_handler)
-                enter_stack.enter_context(ctx)
-                self._signal_ctx = ctx
+                    signal_ctx = shutdown_handler.register(signal.SIGINT, sigint_handler)
+                    enter_stack.enter_context(signal_ctx)
+                else:
+                    signal_ctx = None
 
-            self._call(self.client._aenter(daemon=daemon))
-            # all went well, so don't exit the loop (if it was entered in this call)
-            enter_stack.pop_all()
-            return self
+                self._call(self.client._aenter(daemon=daemon))
+                self._signal_ctx = signal_ctx
+
+                # all went well, so don't clean up everything
+                enter_stack.pop_all()
+                return self
 
     def _exit(self, exc_type, exc_val, exc_tb, daemon=False):
         stack = ExitStack()
@@ -72,24 +83,18 @@ class SyncClient(object):
         @stack.push
         def exit_loop(exc_type, exc_val, exc_tb):
             if self.client.is_closed:
-                self._loop.__exit__(exc_type, exc_val, exc_tb)
+                return self._loop.__exit__(exc_type, exc_val, exc_tb)
 
         if threading.current_thread() is threading.main_thread():
             # TODO the main thread is not necessarily the last thread to finish.
             # Should the signal handler be removed in case it isn't?
             stack.push(self._signal_ctx)
 
+        # called first
         # exit the client with the given daemon-ness, maybe leading the client to close
         @stack.push
         def exit_client(exc_type, exc_val, exc_tb):
-            self._call(self.client._aexit(exc_type, exc_val, exc_tb, daemon=daemon))
-
-        # called first
-        @stack.push
-        def suppress_shutdown_error(exc_type, exc_val, exc_tb):
-            if exc_type == errors.EmergencyShutdown:
-                print(exc_val)
-                return True
+            return self._call(self.client._aexit(exc_type, exc_val, exc_tb, daemon=daemon))
 
         return stack.__exit__(exc_type, exc_val, exc_tb)
 
@@ -114,11 +119,6 @@ class SyncClient(object):
     @property
     def is_closed(self):
         return self.client is not None and self.client.is_closed
-
-    def _call_safe(self, coro_fun):
-        if self.client is None or self.client.is_closed:
-            raise RuntimeError("The client is not active, use `async with client:`")
-        return self._call(coro_fun())
 
     def shutdown(self) -> None:
         self._call_safe(lambda: self.client.shutdown())

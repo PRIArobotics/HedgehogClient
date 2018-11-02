@@ -19,7 +19,7 @@ with open(path.join(here, 'README.rst'), encoding='utf-8') as f:
 
 setup(
     name='hedgehog-client',
-    version='0.7.0',
+    version='0.8.0',
     description='Client library for communicating with Hedgehog Robot Controllers',
     long_description=long_description,
     url="https://github.com/PRIArobotics/HedgehogClient",
@@ -46,12 +46,14 @@ setup(
     # your project is installed. For an analysis of "install_requires" vs pip's
     # requirements files see:
     # https://packaging.python.org/en/latest/requirements.html
-    install_requires=['hedgehog-protocol', 'hedgehog-utils[discovery]', 'pycreate2'],
+    install_requires=['concurrent-utils >=0.2, <0.3', 'hedgehog-protocol >=0.7.1, <0.8',
+                      'hedgehog-utils[protobuf,zmq] >=0.6, <0.7', 'pycreate2'],
 
     # You can install these using the following syntax, for example:
     # $ pip install -e .[dev,test]
     extras_require={
-        'test': ['hedgehog-server', 'pytest', 'pytest-runner', 'pytest-asyncio', 'pytest-cov'],
+        'dev': ['hedgehog-server >= 0.8, <0.9',
+                'pytest', 'pytest-runner', 'pytest-asyncio', 'pytest-cov', 'pytest-timeout', 'mypy'],
     },
 
     # package_data={
