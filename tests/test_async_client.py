@@ -5,8 +5,8 @@ from hedgehog.utils.test_utils import event_loop, zmq_aio_ctx
 from hedgehog.client.test_utils import start_dummy, start_server, Commands
 
 import asyncio
+from contextlib import asynccontextmanager
 import zmq.asyncio
-from aiostream.context_utils import async_context_manager
 
 from concurrent_utils.pipe import PipeEnd
 from hedgehog.client.async_client import HedgehogClient, connect
@@ -24,7 +24,7 @@ event_loop, zmq_aio_ctx, start_dummy, start_server
 
 @pytest.fixture
 def connect_client(zmq_aio_ctx: zmq.asyncio.Context):
-    @async_context_manager
+    @asynccontextmanager
     async def do_connect(endpoint, client_class=HedgehogClient):
         async with client_class(zmq_aio_ctx, endpoint) as client:
             yield client
@@ -34,7 +34,7 @@ def connect_client(zmq_aio_ctx: zmq.asyncio.Context):
 
 @pytest.fixture
 def connect_dummy(start_dummy, connect_client):
-    @async_context_manager
+    @asynccontextmanager
     async def do_connect(server_coro: Callable[[DealerRouterSocket], Awaitable[None]], *args,
                          endpoint: str='inproc://controller', client_class=HedgehogClient, **kwargs):
         async with start_dummy(server_coro, *args, endpoint=endpoint, **kwargs) as dummy, \
@@ -46,7 +46,7 @@ def connect_dummy(start_dummy, connect_client):
 
 @pytest.fixture
 def connect_server(start_server, connect_client):
-    @async_context_manager
+    @asynccontextmanager
     async def do_connect(hardware_adapter: HardwareAdapter=None, endpoint: str='inproc://controller',
                          client_class=HedgehogClient):
         async with start_server(hardware_adapter=hardware_adapter, endpoint=endpoint) as server, \

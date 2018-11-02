@@ -4,8 +4,7 @@ import pytest
 
 import asyncio
 import zmq.asyncio
-from contextlib import contextmanager
-from aiostream.context_utils import async_context_manager
+from contextlib import contextmanager, asynccontextmanager
 
 from concurrent_utils.event_loop_thread import EventLoopThread
 from hedgehog.protocol import ServerSide
@@ -26,7 +25,7 @@ def handler(adapter: HardwareAdapter=None) -> handlers.HandlerCallbackDict:
 
 @pytest.fixture
 def start_dummy(zmq_aio_ctx: zmq.asyncio.Context):
-    @async_context_manager
+    @asynccontextmanager
     async def do_start(server_coro: Callable[[DealerRouterSocket], Awaitable[None]], *args,
                        endpoint: str='inproc://controller', **kwargs):
         with DealerRouterSocket(zmq_aio_ctx, zmq.ROUTER, side=ServerSide) as socket:
@@ -66,7 +65,7 @@ def start_dummy_sync(start_dummy):
 
 @pytest.fixture
 def start_server(zmq_aio_ctx: zmq.asyncio.Context):
-    @async_context_manager
+    @asynccontextmanager
     async def do_start(hardware_adapter: HardwareAdapter=None, endpoint: str='inproc://controller'):
         async with HedgehogServer.start(zmq_aio_ctx, endpoint, handler(hardware_adapter)):
             yield endpoint
