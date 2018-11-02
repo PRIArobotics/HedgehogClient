@@ -7,6 +7,7 @@ import zmq.asyncio
 from contextlib import contextmanager
 from aiostream.context_utils import async_context_manager
 
+from concurrent_utils.event_loop_thread import EventLoopThread
 from hedgehog.protocol import ServerSide
 from hedgehog.protocol.async_sockets import DealerRouterSocket
 from hedgehog.protocol.messages import Message, ack, analog, digital, io, motor, servo, process
@@ -15,8 +16,6 @@ from hedgehog.server.handlers.hardware import HardwareHandler
 from hedgehog.server.handlers.process import ProcessHandler
 from hedgehog.server.hardware import HardwareAdapter
 from hedgehog.server.hardware.mocked import MockedHardwareAdapter
-
-from .sync_client import EventLoopThread
 
 
 def handler(adapter: HardwareAdapter=None) -> handlers.HandlerCallbackDict:

@@ -46,7 +46,7 @@ setup(
     # your project is installed. For an analysis of "install_requires" vs pip's
     # requirements files see:
     # https://packaging.python.org/en/latest/requirements.html
-    install_requires=['concurrent-utils >=0.1, <0.2', 'hedgehog-protocol >=0.7.1, <0.8',
+    install_requires=['concurrent-utils >=0.2, <0.3', 'hedgehog-protocol >=0.7.1, <0.8',
                       'hedgehog-utils[protobuf,zmq] >=0.6, <0.7', 'pycreate2'],
 
     # You can install these using the following syntax, for example:
