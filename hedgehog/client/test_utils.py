@@ -15,13 +15,12 @@ from hedgehog.server.handlers.hardware import HardwareHandler
 from hedgehog.server.handlers.process import ProcessHandler
 from hedgehog.server.hardware import HardwareAdapter
 from hedgehog.server.hardware.mocked import MockedHardwareAdapter
-from hedgehog.utils.event_loop import EventLoopThread
 
 
 def handler(adapter: HardwareAdapter=None) -> handlers.HandlerCallbackDict:
     if adapter is None:
         adapter = MockedHardwareAdapter()
-    return handlers.to_dict(HardwareHandler(adapter), ProcessHandler(adapter))
+    return handlers.merge(HardwareHandler(adapter), ProcessHandler(adapter))
 
 
 @pytest.fixture
@@ -68,7 +67,7 @@ def start_dummy_sync(start_dummy):
 def start_server(zmq_aio_ctx: zmq.asyncio.Context):
     @async_context_manager
     async def do_start(hardware_adapter: HardwareAdapter=None, endpoint: str='inproc://controller'):
-        async with HedgehogServer(zmq_aio_ctx, endpoint, handler(hardware_adapter)):
+        async with HedgehogServer.start(zmq_aio_ctx, endpoint, handler(hardware_adapter)):
             yield endpoint
 
     return do_start

@@ -1,4 +1,4 @@
-from typing import cast, Any, Awaitable, Callable, List, Optional, Sequence, Tuple
+from typing import cast, Any, Awaitable, Callable, Deque, List, Optional, Sequence, Tuple
 
 import asyncio
 import logging
@@ -6,10 +6,12 @@ import os
 import signal
 import threading
 import zmq.asyncio
-from aiostream.context_utils import async_context_manager, AsyncExitStack
+from collections import deque
+from contextlib import asynccontextmanager, AsyncExitStack
 from functools import partial
 
-from hedgehog.utils.asyncio import Actor
+from concurrent_utils.pipe import PipeEnd
+from concurrent_utils.component import Component, component_coro_wrapper, start_component
 from hedgehog.protocol import errors, ClientSide
 from hedgehog.protocol.async_sockets import DealerRouterSocket
 from hedgehog.protocol.messages import Message, ack, io, analog, digital, motor, servo, process
@@ -19,17 +21,15 @@ from .async_handlers import EventHandler, HandlerRegistry, process_handler
 logger = logging.getLogger(__name__)
 
 
-class AsyncClient(Actor):
-    _SHUTDOWN = object()
-
+class AsyncClient:
     def __init__(self, ctx: zmq.asyncio.Context, endpoint: str='tcp://127.0.0.1:10789') -> None:
-        super(AsyncClient, self).__init__()
         self.ctx = ctx
         self.endpoint = endpoint
         self.registry = HandlerRegistry()
         self.socket = None  # type: DealerRouterSocket
-        self._commands = asyncio.Queue()
-        self._futures = []  # type: List[Tuple[Sequence[Optional[EventHandler]], asyncio.Future]]
+        self._reply_condition = asyncio.Condition()
+        self._handlers: Deque[Sequence[EventHandler]] = deque()
+        self._replies: Deque[Sequence[Message]] = deque()
 
         self._open_count = 0
         self._daemon_count = 0
@@ -43,10 +43,12 @@ class AsyncClient(Actor):
             if self._shutdown:
                 raise RuntimeError("Cannot reuse a client after it was once shut down")
 
+            logger.debug("Entering as %s", "daemon" if daemon else "regular")
+
             self._open_count += 1
 
             @enter_stack.callback
-            async def decrement_open_count():
+            def decrement_open_count():
                 self._open_count -= 1
 
             if daemon:
@@ -55,18 +57,21 @@ class AsyncClient(Actor):
                 # testing: I see no good way to cause a fault that triggers this...
                 # the code is almost the same as decrement_open_count, so ignore it for coverage
                 @enter_stack.callback
-                async def decrement_daemon_count():
+                def decrement_daemon_count():
                     self._daemon_count -= 1  # pragma: nocover
 
             if self._open_count == 1:
-                async with AsyncExitStack() as stack:
-                    # can't just do this:
-                    #   await stack.enter_context(super(AsyncClient, self))
-                    # as a super(...) object's type does not have __aenter__/__aexit__.
-                    # That the super object itself has these is not relevant.
+                logger.debug("Activating client...")
 
-                    await super(AsyncClient, self).__aenter__()
-                    stack.push(super(AsyncClient, self).__aexit__)
+                async with AsyncExitStack() as stack:
+                    @asynccontextmanager
+                    async def start() -> Component[None]:
+                        component = await start_component(self.workload)
+                        try:
+                            yield component
+                        finally:
+                            await component.stop()
+                    await stack.enter_async_context(start())
 
                     if threading.current_thread() is threading.main_thread():
                         loop = asyncio.get_event_loop()
@@ -78,23 +83,18 @@ class AsyncClient(Actor):
                             # otherwise, with `self._exit_stack`
                             exit_stack = self._exit_stack if self._exit_stack is not None else stack
 
-                            @exit_stack.callback
+                            @exit_stack.push_async_callback
                             async def await_shutdown():
                                 await task
 
-                        # wrap register_async in an async context manager
-                        @async_context_manager
-                        async def shutdown_handler_wrapper(signalnum, callback):
-                            with shutdown_handler.register_async(signalnum, callback):
-                                yield
-
-                        await stack.enter_context(shutdown_handler_wrapper(signal.SIGINT, sigint_handler))
+                        stack.enter_context(shutdown_handler.register_async(signal.SIGINT, sigint_handler))
 
                     # save the exit actions that need undoing...
                     self._exit_stack = stack.pop_all()
 
             # ...and discard those that were only for the error case
             enter_stack.pop_all()
+            logger.debug("Open: %d (%d daemon)", self._open_count, self._daemon_count)
             return self
 
     async def _aexit(self, exc_type, exc_val, exc_tb, daemon=False):
@@ -102,33 +102,37 @@ class AsyncClient(Actor):
 
         # called last
         @stack.callback
-        async def decrement_open_count():
+        def decrement_open_count():
             self._open_count -= 1
+            logger.debug("Open: %d (%d daemon)", self._open_count, self._daemon_count)
 
-        @stack.push
+        @stack.push_async_exit
         async def exit(exc_type, exc_val, exc_tb):
             if self._open_count == 1:
+                logger.debug("Deactivating client...")
                 try:
                     return await self._exit_stack.__aexit__(exc_type, exc_val, exc_tb)
                 finally:
                     self._exit_stack = None
 
-        @stack.callback
+        @stack.push_async_callback
         async def shutdown():
             if self._open_count - 1 == self._daemon_count:
                 await self.shutdown()
 
         @stack.callback
-        async def decrement_daemon_count():
+        def decrement_daemon_count():
             if daemon:
                 self._daemon_count -= 1
 
         # called first
         @stack.push
-        async def suppress_shutdown_error(exc_type, exc_val, exc_tb):
+        def suppress_shutdown_error(exc_type, exc_val, exc_tb):
             if exc_type == errors.EmergencyShutdown:
                 print(exc_val)
                 return True
+
+        logger.debug("Exiting as %s", "daemon" if daemon else "regular")
 
         return await stack.__aexit__(exc_type, exc_val, exc_tb)
 
@@ -139,11 +143,11 @@ class AsyncClient(Actor):
         return await self._aexit(exc_type, exc_val, exc_tb)
 
     @property
-    @async_context_manager
+    @asynccontextmanager
     async def daemon(self):
         async with AsyncExitStack() as stack:
             ret = await self._aenter(daemon=True)
-            stack.push(partial(self._aexit, daemon=True))
+            stack.push_async_exit(partial(self._aexit, daemon=True))
             yield ret
 
     @property
@@ -154,71 +158,62 @@ class AsyncClient(Actor):
     def is_closed(self):
         return self.is_shutdown and self._open_count == 0
 
-    async def _handle_commands(self):
-        while True:
-            cmds, future = await self._commands.get()
-            if cmds is AsyncClient._SHUTDOWN:
-                if self._shutdown:
-                    future.set_result(None)
-                else:
-                    self._shutdown = True
-                    self.registry.shutdown()
+    @property
+    @asynccontextmanager
+    async def job(self):
+        if self._open_count == 0:
+            raise RuntimeError("The client is not active, use `async with client:`")
 
-                    msgs = []  # type: List[Message]
-                    msgs.extend(motor.Action(port, motor.POWER, 0) for port in range(0, 4))
-                    msgs.extend(servo.Action(port, False, 0) for port in range(0, 4))
-                    self._futures.append((tuple(None for _ in msgs), future))
-                    await self.socket.send_msgs((), msgs)
-            elif self._shutdown:
-                replies = [ack.Acknowledgement(ack.FAILED_COMMAND, "Emergency Shutdown activated") for _ in cmds]
-                future.set_result(replies)
-                for _, handler in cmds:
-                    if handler is not None:
-                        handler.close()
-            else:
-                self._futures.append((tuple(handler for _, handler in cmds), future))
-                await self.socket.send_msgs((), tuple(msg for msg, _ in cmds))
+        async with self._reply_condition:
+            yield
+
+    def _push_replies(self, msgs: Sequence[Message]) -> None:
+        self._replies.append(msgs)
+        self._reply_condition.notify()
+
+    async def _pop_replies(self) -> Sequence[Message]:
+        await self._reply_condition.wait()
+        return self._replies.popleft()
 
     async def _handle_updates(self):
         while True:
             _, msgs = await self.socket.recv_msgs()
             assert len(msgs) > 0
+            async with self._reply_condition:
+                # either, all messages are replies corresponding to the previous requests,
+                # or all messages are asynchronous updates
+                if msgs[0].is_async:
+                    # handle asynchronous messages
+                    logger.debug("Receive updates: %s", msgs)
+                    self.registry.handle_async(msgs)
+                else:
+                    # handle synchronous messages
+                    handlers = self._handlers.popleft()
+                    self.registry.register(handlers, msgs)
+                    self._push_replies(msgs)
 
-            # either, all messages are replies corresponding to the previous requests,
-            # or all messages are asynchronous updates
-            if msgs[0].is_async:
-                # handle asynchronous messages
-                self.registry.handle_async(msgs)
-            else:
-                # handle synchronous messages
-                handlers, future = self._futures.pop(0)
-                future.set_result(msgs)
-                self.registry.register(handlers, msgs)
-
-    async def run(self, cmd_pipe, evt_pipe) -> None:
-        # TODO having to explicitly use empty headers is ugly
+    async def _workload(self, *, commands: PipeEnd, events: PipeEnd) -> None:
         with DealerRouterSocket(self.ctx, zmq.DEALER, side=ClientSide) as self.socket:
             self.socket.connect(self.endpoint)
-            await evt_pipe.send(b'$START')
+            await events.send(Component.EVENT_START)
 
-            commands = asyncio.ensure_future(self._handle_commands())
-            updates = asyncio.ensure_future(self._handle_updates())
+            updates = asyncio.create_task(self._handle_updates())
             try:
                 while True:
-                    cmd = await cmd_pipe.recv()
-                    if cmd == b'$TERM':
+                    command = await commands.recv()
+                    if command == Component.COMMAND_STOP:
                         break
+                    else:
+                        raise ValueError(f"unknown command: {command!r}")
             finally:
-                commands.cancel()
-                try:
-                    await commands
-                except asyncio.CancelledError:
-                    pass
                 updates.cancel()
                 try:
                     await updates
                 except asyncio.CancelledError:
                     pass
+
+    async def workload(self, *, commands: PipeEnd, events: PipeEnd) -> None:
+        return await component_coro_wrapper(self._workload, commands=commands, events=events)
 
     async def send(self, msg: Message, handler: EventHandler=None) -> Optional[Message]:
         reply, = await self.send_multipart((msg, handler))
@@ -230,33 +225,49 @@ class AsyncClient(Actor):
             return reply
 
     async def send_multipart(self, *cmds: Tuple[Message, EventHandler]) -> Any:
-        if self._open_count == 0:
-            raise RuntimeError("The client is not active, use `async with client:`")
-        future = asyncio.Future()
-        await self._commands.put((cmds, future))
-        return await future
+        async with self.job:
+            if self._shutdown:
+                replies = [ack.Acknowledgement(ack.FAILED_COMMAND, "Emergency Shutdown activated") for _ in cmds]
+                for _, handler in cmds:
+                    if handler is not None:
+                        handler.close()
+                return replies
+            else:
+                return await self._send(tuple(request for request, _ in cmds), tuple(handler for _, handler in cmds))
 
     async def shutdown(self) -> None:
-        if self._open_count == 0:
-            raise RuntimeError("The client is not active, use `async with client:`")
-        future = asyncio.Future()
-        await self._commands.put((AsyncClient._SHUTDOWN, future))
-        await future
+        async with self.job:
+            if not self._shutdown:
+                self._shutdown = True
+                self.registry.shutdown()
+
+                msgs = []  # type: List[Message]
+                msgs.extend(motor.Action(port, motor.POWER, 0) for port in range(0, 4))
+                msgs.extend(servo.Action(port, False, 0) for port in range(0, 4))
+                await self._send(msgs, tuple(None for _ in msgs))
+
+    async def _send(self, requests: Sequence[Message], handlers: Sequence[EventHandler]) -> Sequence[Message]:
+        logger.debug("Send commands:   %s", requests)
+        await self.socket.send_msgs((), requests)
+        self._handlers.append(handlers)
+        replies = await self._pop_replies()
+        logger.debug("Receive replies: %s", replies)
+        return replies
 
     async def spawn(self, awaitable: Awaitable[Any], daemon: bool=False) -> asyncio.Task:
-        future = asyncio.Future()
+        event = asyncio.Event()
 
         async def task():
             async with (self.daemon if daemon else self):
-                future.set_result(None)
+                event.set()
                 await awaitable
 
-        result = asyncio.ensure_future(task())
-        await future
+        result = asyncio.create_task(task())
+        await event.wait()
         return result
 
 
-class HedgehogClientMixin(object):
+class HedgehogClientMixin:
     async def set_input_state(self, port: int, pullup: bool) -> None:
         await self.send(io.Action(port, io.INPUT_PULLUP if pullup else io.INPUT_FLOATING))
 
@@ -348,7 +359,7 @@ class HedgehogClient(HedgehogClientMixin, AsyncClient):
     pass
 
 
-@async_context_manager
+@asynccontextmanager
 async def connect(endpoint='tcp://127.0.0.1:10789', emergency=None,
                   ctx=None, client_class=HedgehogClient, process_setup=True):
     # TODO SIGINT handling

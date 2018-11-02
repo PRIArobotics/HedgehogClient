@@ -8,13 +8,13 @@ import asyncio
 import zmq.asyncio
 from aiostream.context_utils import async_context_manager
 
+from concurrent_utils.pipe import PipeEnd
 from hedgehog.client.async_client import HedgehogClient, connect
 from hedgehog.protocol import errors
 from hedgehog.protocol.messages import io, motor, process
 from hedgehog.protocol.async_sockets import DealerRouterSocket
 from hedgehog.server.hardware import HardwareAdapter
 from hedgehog.server.hardware.mocked import MockedHardwareAdapter
-from hedgehog.utils.asyncio import pipe
 
 # Pytest fixtures
 event_loop, zmq_aio_ctx, start_dummy, start_server
@@ -228,11 +228,11 @@ async def test_faulty_client(zmq_aio_ctx: zmq.asyncio.Context, start_server):
         faulty = True
 
         class FaultyClient(HedgehogClient):
-            async def run(self, cmd_pipe, evt_pipe):
+            async def _workload(self, *, commands: PipeEnd, events: PipeEnd) -> None:
                 if faulty:
                     raise MyException()
                 else:
-                    return await super(FaultyClient, self).run(cmd_pipe, evt_pipe)
+                    return await super(FaultyClient, self)._workload(commands=commands, events=events)
 
         client = FaultyClient(zmq_aio_ctx, server)
 
@@ -340,22 +340,22 @@ class TestHedgehogClientProcessAPI(object):
     async def test_execute_process_handle_exit(self, connect_dummy):
         pid = 2346
         async with connect_dummy(Commands.execute_process_echo_asdf, pid) as client:
-            exit_a, exit_b = pipe()
+            event = asyncio.Event()
 
             async def on_exit(_pid, exit_code):
                 assert _pid == pid
                 assert exit_code == 0
-                await exit_b.send(None)
+                event.set()
 
             assert await client.execute_process('echo', 'asdf', on_exit=on_exit) == pid
 
-            await exit_a.recv()
+            await event.wait()
 
     @pytest.mark.asyncio
     async def test_execute_process_handle_stream(self, connect_dummy):
         pid = 2347
         async with connect_dummy(Commands.execute_process_echo_asdf, pid) as client:
-            exit_a, exit_b = pipe()
+            event = asyncio.Event()
 
             counter = 0
 
@@ -371,11 +371,11 @@ class TestHedgehogClientProcessAPI(object):
                 counter += 1
 
                 if counter == len(expect):
-                    await exit_b.send(None)
+                    event.set()
 
             assert await client.execute_process('echo', 'asdf', on_stdout=on_stdout) == pid
 
-            await exit_a.recv()
+            await event.wait()
 
     @pytest.mark.asyncio
     async def test_execute_process_handle_input(self, connect_dummy):
