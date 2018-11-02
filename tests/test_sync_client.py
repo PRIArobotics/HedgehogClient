@@ -8,6 +8,7 @@ import time
 import zmq.asyncio
 from contextlib import contextmanager
 
+from concurrent_utils.pipe import PipeEnd
 from hedgehog.client.sync_client import HedgehogClient, connect
 from hedgehog.protocol import errors
 from hedgehog.protocol.messages import io, motor, process
@@ -201,11 +202,11 @@ def test_faulty_client(zmq_aio_ctx: zmq.asyncio.Context, start_server_sync):
         faulty = True
 
         class FaultyAsyncClient(async_client.HedgehogClient):
-            async def run(self, cmd_pipe, evt_pipe):
+            async def _workload(self, *, commands: PipeEnd, events: PipeEnd) -> None:
                 if faulty:
                     raise MyException()
                 else:
-                    return await super(FaultyAsyncClient, self).run(cmd_pipe, evt_pipe)
+                    return await super(FaultyAsyncClient, self)._workload(commands=commands, events=events)
 
 
         class FaultyClient(HedgehogClient):

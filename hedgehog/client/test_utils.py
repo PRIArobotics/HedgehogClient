@@ -16,6 +16,8 @@ from hedgehog.server.handlers.process import ProcessHandler
 from hedgehog.server.hardware import HardwareAdapter
 from hedgehog.server.hardware.mocked import MockedHardwareAdapter
 
+from .sync_client import EventLoopThread
+
 
 def handler(adapter: HardwareAdapter=None) -> handlers.HandlerCallbackDict:
     if adapter is None:
