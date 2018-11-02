@@ -52,7 +52,7 @@ setup(
     # You can install these using the following syntax, for example:
     # $ pip install -e .[dev,test]
     extras_require={
-        'dev': ['hedgehog-server',
+        'dev': ['hedgehog-server >= 0.8, <0.9',
                 'pytest', 'pytest-runner', 'pytest-asyncio', 'pytest-cov', 'pytest-timeout', 'mypy'],
     },
 
