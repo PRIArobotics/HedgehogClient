@@ -159,7 +159,7 @@ class AsyncClient:
 
     @property
     @asynccontextmanager
-    async def job(self):
+    async def _job(self):
         if self._open_count == 0:
             raise RuntimeError("The client is not active, use `async with client:`")
 
@@ -220,7 +220,7 @@ class AsyncClient:
             return reply
 
     async def send_multipart(self, *cmds: Tuple[Message, EventHandler]) -> Any:
-        async with self.job:
+        async with self._job:
             if self._shutdown:
                 replies = [ack.Acknowledgement(ack.FAILED_COMMAND, "Emergency Shutdown activated") for _ in cmds]
                 for _, handler in cmds:
@@ -231,7 +231,7 @@ class AsyncClient:
                 return await self._send(tuple(request for request, _ in cmds), tuple(handler for _, handler in cmds))
 
     async def shutdown(self) -> None:
-        async with self.job:
+        async with self._job:
             if not self._shutdown:
                 self._shutdown = True
                 self.registry.shutdown()
