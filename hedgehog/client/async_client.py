@@ -175,10 +175,14 @@ class AsyncClient:
                 # either, all messages are replies corresponding to the previous requests,
                 # or all messages are asynchronous updates
                 if msgs[0].is_async:
+                    assert all(msg.is_async for msg in msgs)
+
                     # handle asynchronous messages
                     logger.debug("Receive updates: %s", msgs)
                     self.registry.handle_async(msgs)
                 else:
+                    assert not any(msg.is_async for msg in msgs)
+
                     # handle synchronous messages
                     handlers = self._handlers.popleft()
                     self.registry.register(handlers, msgs)
