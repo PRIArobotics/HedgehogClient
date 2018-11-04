@@ -167,14 +167,6 @@ class AsyncClient:
         async with self._reply_condition:
             yield
 
-    def _push_replies(self, msgs: Sequence[Message]) -> None:
-        self._replies.append(msgs)
-        self._reply_condition.notify()
-
-    async def _pop_replies(self) -> Sequence[Message]:
-        await self._reply_condition.wait()
-        return self._replies.popleft()
-
     async def _handle_updates(self):
         while True:
             _, msgs = await self.socket.recv_msgs()
@@ -190,7 +182,8 @@ class AsyncClient:
                     # handle synchronous messages
                     handlers = self._handlers.popleft()
                     self.registry.register(handlers, msgs)
-                    self._push_replies(msgs)
+                    self._replies.append(msgs)
+                    self._reply_condition.notify()
 
     async def _workload(self, *, commands: PipeEnd, events: PipeEnd) -> None:
         with DealerRouterSocket(self.ctx, zmq.DEALER, side=ClientSide) as self.socket:
@@ -248,9 +241,11 @@ class AsyncClient:
 
     async def _send(self, requests: Sequence[Message], handlers: Sequence[EventHandler]) -> Sequence[Message]:
         logger.debug("Send commands:   %s", requests)
-        await self.socket.send_msgs((), requests)
         self._handlers.append(handlers)
-        replies = await self._pop_replies()
+        await self.socket.send_msgs((), requests)
+
+        await self._reply_condition.wait()
+        replies = self._replies.popleft()
         logger.debug("Receive replies: %s", replies)
         return replies
 
