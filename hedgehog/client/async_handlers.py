@@ -1,6 +1,7 @@
-from typing import cast, Any, Callable, Dict, Generator, List, Sequence, Set, Tuple, Type
+from typing import cast, Any, Callable, Deque, Dict, Generator, List, Sequence, Set, Tuple, Type
 
 import asyncio
+from collections import deque
 
 from hedgehog.protocol.messages import ReplyMsg, Message, ack, motor, process
 
@@ -76,9 +77,14 @@ class HandlerRegistry(object):
         return cls, HandlerRegistry._update_keys[cls](update)
 
     def __init__(self) -> None:
+        self._queue: Deque[Sequence[EventHandler]] = deque()
         self._handlers = {}  # type: Dict[Tuple[Type[Message], Any], EventHandler]
 
-    def register(self, handlers: Sequence[EventHandler], replies: Sequence[Message]):
+    def prepare_register(self, handlers: Sequence[EventHandler]):
+        self._queue.append(handlers)
+
+    def complete_register(self, replies: Sequence[Message]):
+        handlers = self._queue.popleft()
         assert len(handlers) == len(replies)
         for handler, reply in zip(handlers, replies):
             if handler is None:

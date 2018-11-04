@@ -28,7 +28,6 @@ class AsyncClient:
         self.registry = HandlerRegistry()
         self.socket = None  # type: DealerRouterSocket
         self._reply_condition = asyncio.Condition()
-        self._handlers: Deque[Sequence[EventHandler]] = deque()
         self._replies: Deque[Sequence[Message]] = deque()
 
         self._open_count = 0
@@ -184,8 +183,7 @@ class AsyncClient:
                     assert not any(msg.is_async for msg in msgs)
 
                     # handle synchronous messages
-                    handlers = self._handlers.popleft()
-                    self.registry.register(handlers, msgs)
+                    self.registry.complete_register(msgs)
                     self._replies.append(msgs)
                     self._reply_condition.notify()
 
@@ -245,7 +243,7 @@ class AsyncClient:
 
     async def _send(self, requests: Sequence[Message], handlers: Sequence[EventHandler]) -> Sequence[Message]:
         logger.debug("Send commands:   %s", requests)
-        self._handlers.append(handlers)
+        self.registry.prepare_register(handlers)
         await self.socket.send_msgs((), requests)
 
         await self._reply_condition.wait()
