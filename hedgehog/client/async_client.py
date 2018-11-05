@@ -16,7 +16,7 @@ from hedgehog.protocol import errors, ClientSide
 from hedgehog.protocol.async_sockets import DealerRouterSocket
 from hedgehog.protocol.messages import Message, ack, io, analog, digital, motor, servo, process
 from . import shutdown_handler
-from .async_handlers import AsyncHandler, HandlerRegistry, process_handler
+from .async_handlers import AsyncHandler, HandlerRegistry, ProcessHandler
 
 logger = logging.getLogger(__name__)
 
@@ -339,7 +339,7 @@ class HedgehogClientMixin:
 
     async def execute_process(self, *args: str, working_dir: str=None, on_stdout=None, on_stderr=None, on_exit=None) -> int:
         if on_stdout is not None or on_stderr is not None or on_exit is not None:
-            handler = partial(process_handler, on_stdout, on_stderr, on_exit)
+            handler = ProcessHandler(on_stdout, on_stderr, on_exit)
         else:
             handler = None
         response = cast(process.ExecuteReply, await self.send(process.ExecuteAction(*args, working_dir=working_dir), handler))

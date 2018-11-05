@@ -11,55 +11,61 @@ UpdateKey = Tuple[Type[Message], Any]
 AsyncHandler = Callable[[Message], Tuple[Set[UpdateKey], UpdateHandler]]
 
 
-def process_handler(on_stdout, on_stderr, on_exit, reply: process.ExecuteReply, *, sequential=True)\
-        -> Tuple[Set[UpdateKey], UpdateHandler]:
-    pid = reply.pid
+class ProcessHandler:
+    def __init__(self, on_stdout, on_stderr, on_exit, sequential=True):
+        self._on_stdout = on_stdout
+        self._on_stderr = on_stderr
+        self._on_exit = on_exit
+        self._sequential = sequential
+        pass
 
-    async def handle_update(update: Union[process.StreamUpdate, process.ExitUpdate]) -> None:
+    async def handle_update(self, update: Union[process.StreamUpdate, process.ExitUpdate]) -> None:
         if isinstance(update, process.StreamUpdate):
             if update.fileno == process.STDOUT:
-                if on_stdout is not None:
-                    await on_stdout(pid, update.fileno, update.chunk)
+                if self._on_stdout is not None:
+                    await self._on_stdout(self.pid, update.fileno, update.chunk)
             else:
-                if on_stderr is not None:
-                    await on_stderr(pid, update.fileno, update.chunk)
+                if self._on_stderr is not None:
+                    await self._on_stderr(self.pid, update.fileno, update.chunk)
         elif isinstance(update, process.ExitUpdate):
-            if on_exit is not None:
-                await on_exit(pid, update.exit_code)
+            if self._on_exit is not None:
+                await self._on_exit(self.pid, update.exit_code)
         else:  # pragma: nocover
             assert False, update
 
-    tasks: List[asyncio.Task] = []
+    def _handle_updates_sequential(self, tasks: List[asyncio.Task]):
+        queue = asyncio.Queue()
 
-    if sequential:
-        def _handle_updates():
-            queue = asyncio.Queue()
-
-            async def run_updates() -> None:
-                while True:
-                    update = await queue.get()
-                    await handle_update(update)
-                    if isinstance(update, process.ExitUpdate):
-                        break
-
-            tasks.append(asyncio.create_task(run_updates()))
-
+        async def run_updates() -> None:
             while True:
-                update = yield
-                queue.put_nowait(update)
-                if isinstance(update, process.ExitUpdate):
-                    break
-    else:
-        def _handle_updates():
-            while True:
-                update = yield
-                tasks.append(asyncio.create_task(handle_update(update)))
+                update = await queue.get()
+                await self.handle_update(update)
                 if isinstance(update, process.ExitUpdate):
                     break
 
-    def handle_updates():
+        tasks.append(asyncio.create_task(run_updates()))
+
+        while True:
+            update = yield
+            queue.put_nowait(update)
+            if isinstance(update, process.ExitUpdate):
+                break
+
+    def _handle_updates_concurrent(self, tasks: List[asyncio.Task]):
+        while True:
+            update = yield
+            tasks.append(asyncio.create_task(self.handle_update(update)))
+            if isinstance(update, process.ExitUpdate):
+                break
+
+    def _handle_updates(self):
+        tasks: List[asyncio.Task] = []
+
         try:
-            yield from _handle_updates()
+            if self._sequential:
+                yield from self._handle_updates_sequential(tasks)
+            else:
+                yield from self._handle_updates_concurrent(tasks)
 
             # here we expect shutdown
             try:
@@ -72,10 +78,12 @@ def process_handler(on_stdout, on_stderr, on_exit, reply: process.ExecuteReply, 
             for task in tasks:
                 task.cancel()
 
-    update_keys = {(process.StreamUpdate, pid), (process.ExitUpdate, pid)}
-    update_handler: UpdateHandler = handle_updates()
-    next(update_handler)
-    return update_keys, update_handler
+    def __call__(self, reply: process.ExecuteReply) -> Tuple[Set[UpdateKey], UpdateHandler]:
+        self.pid = reply.pid
+        update_keys = {(process.StreamUpdate, self.pid), (process.ExitUpdate, self.pid)}
+        update_handler: UpdateHandler = self._handle_updates()
+        next(update_handler)
+        return update_keys, update_handler
 
 
 class HandlerRegistry(object):
