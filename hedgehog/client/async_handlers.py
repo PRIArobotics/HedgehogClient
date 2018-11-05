@@ -3,7 +3,7 @@ from typing import cast, Any, Callable, Deque, Dict, Generator, List, Sequence, 
 import asyncio
 from collections import deque
 
-from hedgehog.protocol.messages import Message, ack, motor, process
+from hedgehog.protocol.messages import Message, ack, analog, digital, io, motor, process, servo
 
 
 UpdateHandler = Generator[None, Message, None]
@@ -88,7 +88,12 @@ class ProcessHandler:
 
 class HandlerRegistry(object):
     _update_keys = {
-        # motor.StateUpdate: lambda update: cast(motor.StateUpdate, update).port,
+        io.CommandUpdate: lambda update: cast(io.CommandUpdate, update).port,
+        analog.Update: lambda update: cast(analog.Update, update).port,
+        digital.Update: lambda update: cast(digital.Update, update).port,
+        motor.CommandUpdate: lambda update: cast(motor.CommandUpdate, update).port,
+        motor.StateUpdate: lambda update: cast(motor.StateUpdate, update).port,
+        servo.CommandUpdate: lambda update: cast(servo.CommandUpdate, update).port,
         process.StreamUpdate: lambda update: cast(process.StreamUpdate, update).pid,
         process.ExitUpdate: lambda update: cast(process.ExitUpdate, update).pid,
     }  # type: Dict[Type[Message], Callable[[Message], Any]]
