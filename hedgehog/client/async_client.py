@@ -16,7 +16,7 @@ from hedgehog.protocol import errors, ClientSide
 from hedgehog.protocol.async_sockets import DealerRouterSocket
 from hedgehog.protocol.messages import Message, ack, io, analog, digital, motor, servo, process
 from . import shutdown_handler
-from .async_handlers import EventHandler, HandlerRegistry, process_handler
+from .async_handlers import AsyncHandler, HandlerRegistry, process_handler
 
 logger = logging.getLogger(__name__)
 
@@ -178,7 +178,7 @@ class AsyncClient:
 
                     # handle asynchronous messages
                     logger.debug("Receive updates: %s", msgs)
-                    self.registry.handle_async(msgs)
+                    self.registry.handle_updates(msgs)
                 else:
                     assert not any(msg.is_async for msg in msgs)
 
@@ -210,7 +210,7 @@ class AsyncClient:
     async def workload(self, *, commands: PipeEnd, events: PipeEnd) -> None:
         return await component_coro_wrapper(self._workload, commands=commands, events=events)
 
-    async def send(self, msg: Message, handler: EventHandler=None) -> Optional[Message]:
+    async def send(self, msg: Message, handler: AsyncHandler=None) -> Optional[Message]:
         reply, = await self.send_multipart((msg, handler))
         if isinstance(reply, ack.Acknowledgement):
             if reply.code != ack.OK:
@@ -219,7 +219,7 @@ class AsyncClient:
         else:
             return reply
 
-    async def send_multipart(self, *cmds: Tuple[Message, EventHandler]) -> Any:
+    async def send_multipart(self, *cmds: Tuple[Message, AsyncHandler]) -> Any:
         async with self._job:
             if self._shutdown:
                 replies = [ack.Acknowledgement(ack.FAILED_COMMAND, "Emergency Shutdown activated") for _ in cmds]
@@ -241,7 +241,7 @@ class AsyncClient:
                 msgs.extend(servo.Action(port, False, 0) for port in range(0, 4))
                 await self._send(msgs, tuple(None for _ in msgs))
 
-    async def _send(self, requests: Sequence[Message], handlers: Sequence[EventHandler]) -> Sequence[Message]:
+    async def _send(self, requests: Sequence[Message], handlers: Sequence[AsyncHandler]) -> Sequence[Message]:
         logger.debug("Send commands:   %s", requests)
         self.registry.prepare_register(handlers)
         await self.socket.send_msgs((), requests)
@@ -339,7 +339,7 @@ class HedgehogClientMixin:
 
     async def execute_process(self, *args: str, working_dir: str=None, on_stdout=None, on_stderr=None, on_exit=None) -> int:
         if on_stdout is not None or on_stderr is not None or on_exit is not None:
-            handler = process_handler(on_stdout, on_stderr, on_exit)
+            handler = partial(process_handler, on_stdout, on_stderr, on_exit)
         else:
             handler = None
         response = cast(process.ExecuteReply, await self.send(process.ExecuteAction(*args, working_dir=working_dir), handler))
