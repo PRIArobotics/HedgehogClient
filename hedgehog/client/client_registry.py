@@ -158,8 +158,8 @@ class ProcessUpdateHandler(EventHandler):
 
         self.stdout_handler = _EventHandler(backend, handle_stdout_exit())
         self.stderr_handler = _EventHandler(backend, handle_stderr())
-        backend.spawn(self.stdout_handler.run, async=True)
-        backend.spawn(self.stderr_handler.run, async=True)
+        backend.spawn(self.stdout_handler.run, async_=True)
+        backend.spawn(self.stderr_handler.run, async_=True)
 
     def update(self, update):
         if isinstance(update, process.StreamUpdate):
