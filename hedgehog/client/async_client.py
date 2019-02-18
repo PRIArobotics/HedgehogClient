@@ -13,7 +13,7 @@ from functools import partial
 from concurrent_utils.pipe import PipeEnd
 from concurrent_utils.component import Component, component_coro_wrapper, start_component
 from hedgehog.protocol import errors, ClientSide
-from hedgehog.protocol.async_sockets import DealerRouterSocket
+from hedgehog.protocol.zmq.asyncio import DealerRouterSocket
 from hedgehog.protocol.messages import Message, ack, io, analog, digital, motor, servo, process
 from . import shutdown_handler
 from .async_handlers import AsyncHandler, HandlerRegistry, ProcessHandler

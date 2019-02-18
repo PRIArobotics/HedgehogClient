@@ -12,7 +12,7 @@ from concurrent_utils.pipe import PipeEnd
 from hedgehog.client.async_client import HedgehogClient, connect
 from hedgehog.protocol import errors
 from hedgehog.protocol.messages import io, motor, process
-from hedgehog.protocol.async_sockets import DealerRouterSocket
+from hedgehog.protocol.zmq.asyncio import DealerRouterSocket
 from hedgehog.server.hardware import HardwareAdapter
 from hedgehog.server.hardware.mocked import MockedHardwareAdapter
 
@@ -245,7 +245,6 @@ async def test_faulty_client(zmq_aio_ctx: zmq.asyncio.Context, start_server):
 
         async with client:
             assert await client.get_analog(0) == 0
-
 
 
 @pytest.mark.asyncio

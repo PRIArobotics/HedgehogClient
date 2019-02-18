@@ -12,7 +12,7 @@ from concurrent_utils.pipe import PipeEnd
 from hedgehog.client.sync_client import HedgehogClient, connect
 from hedgehog.protocol import errors
 from hedgehog.protocol.messages import io, motor, process
-from hedgehog.protocol.sockets import DealerRouterSocket
+from hedgehog.protocol.zmq import DealerRouterSocket
 from hedgehog.server.hardware import HardwareAdapter
 from hedgehog.server.hardware.mocked import MockedHardwareAdapter
 

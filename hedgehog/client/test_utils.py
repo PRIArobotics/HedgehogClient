@@ -8,7 +8,7 @@ from contextlib import contextmanager, asynccontextmanager
 
 from concurrent_utils.event_loop_thread import EventLoopThread
 from hedgehog.protocol import ServerSide
-from hedgehog.protocol.async_sockets import DealerRouterSocket
+from hedgehog.protocol.zmq.asyncio import DealerRouterSocket
 from hedgehog.protocol.messages import Message, ack, analog, digital, io, motor, servo, process
 from hedgehog.server import handlers, HedgehogServer
 from hedgehog.server.handlers.hardware import HardwareHandler
