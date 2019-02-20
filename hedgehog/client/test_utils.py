@@ -125,7 +125,7 @@ class Commands(object):
     async def motor_command_request(server, port, state, amount):
         ident, msg = await server.recv_msg()
         assert msg == motor.CommandRequest(port)
-        await server.send_msg(ident, motor.CommandReply(port, state, amount))
+        await server.send_msg(ident, motor.CommandReply(port, motor.DcConfig(), state, amount))
 
     @staticmethod
     async def motor_state_request(server, port, velocity, position):
