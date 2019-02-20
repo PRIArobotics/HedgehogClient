@@ -59,7 +59,7 @@ def connect_server(start_server_sync, connect_client):
 
 # tests
 
-def test_connect(connect_server):
+def test_command(connect_server):
     with connect_server() as client:
         client.set_input_state(0, False)
 
