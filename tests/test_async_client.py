@@ -2,7 +2,7 @@ from typing import Awaitable, Callable
 
 import pytest
 from hedgehog.utils.test_utils import event_loop, zmq_aio_ctx
-from hedgehog.client.test_utils import start_dummy, start_server, Commands
+from hedgehog.client.test_utils import start_dummy, Commands
 
 import asyncio
 from contextlib import asynccontextmanager
@@ -13,11 +13,9 @@ from hedgehog.client.async_client import HedgehogClient, connect
 from hedgehog.protocol import errors
 from hedgehog.protocol.messages import io, motor, process
 from hedgehog.protocol.zmq.asyncio import DealerRouterSocket
-from hedgehog.server.hardware import HardwareAdapter
-from hedgehog.server.hardware.mocked import MockedHardwareAdapter
 
 # Pytest fixtures
-event_loop, zmq_aio_ctx, start_dummy, start_server
+event_loop, zmq_aio_ctx, start_dummy
 
 
 # additional fixtures
@@ -44,122 +42,113 @@ def connect_dummy(start_dummy, connect_client):
     return do_connect
 
 
-@pytest.fixture
-def connect_server(start_server, connect_client):
-    @asynccontextmanager
-    async def do_connect(hardware_adapter: HardwareAdapter=None, endpoint: str='inproc://controller',
-                         client_class=HedgehogClient):
-        async with start_server(hardware_adapter=hardware_adapter, endpoint=endpoint) as server, \
-                connect_client(server, client_class=client_class) as client:
-            yield client
-
-    return do_connect
-
-
 # tests
 
 @pytest.mark.asyncio
-async def test_concurrent_commands(connect_server):
-    hardware_adapter = MockedHardwareAdapter()
-    hardware_adapter.set_digital(8, 0, True)
-    async with connect_server(hardware_adapter=hardware_adapter) as client:
-        task_a = asyncio.ensure_future(client.get_analog(0))
-        task_b = asyncio.ensure_future(client.get_digital(8))
-        assert await task_a == 0
-        assert await task_b is True
+async def test_concurrent_commands(connect_dummy):
+    port_a, value_a, port_d, value_d = 0, 0, 0, True
+    async with connect_dummy(Commands.concurrent_analog_digital_requests, port_a, value_a, port_d, value_d) as client:
+        task_a = asyncio.ensure_future(client.get_analog(port_a))
+        task_d = asyncio.ensure_future(client.get_digital(port_d))
+        assert await task_a == value_a
+        assert await task_d is value_d
 
 
 @pytest.mark.asyncio
-async def test_overlapping_contexts(start_server, connect_client):
-    async with start_server() as server:
+async def test_overlapping_contexts(start_dummy, connect_client):
+    port_a, value_a, port_d, value_d = 0, 0, 0, True
+    async with start_dummy(Commands.concurrent_analog_digital_requests, port_a, value_a, port_d, value_d) as server:
         async with connect_client(server) as client:
             async def do_something():
                 assert client._open_count == 2
                 await asyncio.sleep(2)
                 assert client._open_count == 1
-                assert await client.get_analog(0) == 0
+                assert await client.get_analog(port_a) == value_a
 
             assert client._open_count == 1
             task = await client.spawn(do_something())
             assert client._open_count == 2
-            assert await client.get_analog(0) == 0
+            assert await client.get_digital(port_d) == value_d
             await asyncio.sleep(1)
         await task
 
 
 @pytest.mark.asyncio
-async def test_daemon_context(start_server, connect_client):
-    async with start_server() as server:
+async def test_daemon_context(start_dummy, connect_client):
+    port, value = 0, 0
+    async with start_dummy(Commands.analog_request, port, value) as server:
         async with connect_client(server) as client:
             async def do_something():
-                assert await client.get_analog(0) == 0
+                assert await client.get_analog(port) == value
                 await asyncio.sleep(2)
                 with pytest.raises(errors.HedgehogCommandError):
-                    await client.get_analog(0)
+                    await client.get_analog(port)
 
             task = await client.spawn(do_something(), daemon=True)
             await asyncio.sleep(1)
         await task
 
 
-@pytest.mark.asyncio
-async def test_connect(zmq_aio_ctx: zmq.asyncio.Context, start_server):
-    hardware_adapter = MockedHardwareAdapter()
-    hardware_adapter.set_digital(15, 0, True)
-    hardware_adapter.set_digital(15, 1, False)
-    async with start_server(hardware_adapter=hardware_adapter) as server:
-        async with connect(server, emergency=15, ctx=zmq_aio_ctx) as client:
-            assert await client.get_analog(0) == 0
+# @pytest.mark.asyncio
+# async def test_connect(zmq_aio_ctx: zmq.asyncio.Context, start_server):
+#     hardware_adapter = MockedHardwareAdapter()
+#     hardware_adapter.set_digital(15, 0, True)
+#     hardware_adapter.set_digital(15, 1, False)
+#     async with start_server(hardware_adapter=hardware_adapter) as server:
+#         async with connect(server, emergency=15, ctx=zmq_aio_ctx) as client:
+#             assert await client.get_analog(0) == 0
+#
+#             await asyncio.sleep(2)
+#             # signals don't play nicely with the simulated time of the loop.
+#             # sleep again after the signal interrupted the original sleep.
+#             await asyncio.sleep(1)
+#             with pytest.raises(errors.EmergencyShutdown):
+#                 assert await client.get_analog(0) == 0
 
-            await asyncio.sleep(2)
-            # signals don't play nicely with the simulated time of the loop.
-            # sleep again after the signal interrupted the original sleep.
-            await asyncio.sleep(1)
-            with pytest.raises(errors.EmergencyShutdown):
-                assert await client.get_analog(0) == 0
 
-
-@pytest.mark.asyncio
-async def test_connect_multiple(zmq_aio_ctx: zmq.asyncio.Context, start_server):
-    hardware_adapter = MockedHardwareAdapter()
-    hardware_adapter.set_digital(15, 0, True)
-    hardware_adapter.set_digital(15, 1, False)
-    async with start_server(hardware_adapter=hardware_adapter) as server:
-        async with connect(server, emergency=15, ctx=zmq_aio_ctx) as client1, \
-                connect(server, emergency=15, ctx=zmq_aio_ctx) as client2:
-            assert await client1.get_analog(0) == 0
-            assert await client2.get_analog(0) == 0
-
-            await asyncio.sleep(2)
-            # signals don't play nicely with the simulated time of the loop.
-            # sleep again after the signal interrupted the original sleep.
-            await asyncio.sleep(1)
-            with pytest.raises(errors.EmergencyShutdown):
-                assert await client1.get_analog(0) == 0
-            with pytest.raises(errors.EmergencyShutdown):
-                assert await client2.get_analog(0) == 0
+# @pytest.mark.asyncio
+# async def test_connect_multiple(zmq_aio_ctx: zmq.asyncio.Context, start_server):
+#     hardware_adapter = MockedHardwareAdapter()
+#     hardware_adapter.set_digital(15, 0, True)
+#     hardware_adapter.set_digital(15, 1, False)
+#     async with start_server(hardware_adapter=hardware_adapter) as server:
+#         async with connect(server, emergency=15, ctx=zmq_aio_ctx) as client1, \
+#                 connect(server, emergency=15, ctx=zmq_aio_ctx) as client2:
+#             assert await client1.get_analog(0) == 0
+#             assert await client2.get_analog(0) == 0
+#
+#             await asyncio.sleep(2)
+#             # signals don't play nicely with the simulated time of the loop.
+#             # sleep again after the signal interrupted the original sleep.
+#             await asyncio.sleep(1)
+#             with pytest.raises(errors.EmergencyShutdown):
+#                 assert await client1.get_analog(0) == 0
+#             with pytest.raises(errors.EmergencyShutdown):
+#                 assert await client2.get_analog(0) == 0
 
 
 # tests for failures
 
 @pytest.mark.asyncio
-async def test_inactive_context(zmq_aio_ctx: zmq.asyncio.Context, start_server):
-    async with start_server() as server:
+async def test_inactive_context(zmq_aio_ctx: zmq.asyncio.Context, start_dummy):
+    port, value = 0, 0
+    async with start_dummy(Commands.analog_request, port, value) as server:
         client = HedgehogClient(zmq_aio_ctx, server)
 
         with pytest.raises(RuntimeError):
-            await client.get_analog(0)
+            await client.get_analog(port)
 
         async with client:
-            assert await client.get_analog(0) == 0
+            assert await client.get_analog(port) == value
 
         with pytest.raises(RuntimeError):
-            await client.get_analog(0)
+            await client.get_analog(port)
 
 
 @pytest.mark.asyncio
-async def test_daemon_context_first(zmq_aio_ctx: zmq.asyncio.Context, start_server):
-    async with start_server() as server:
+async def test_daemon_context_first(zmq_aio_ctx: zmq.asyncio.Context, start_dummy):
+    port, value = 0, 0
+    async with start_dummy(Commands.analog_request, port, value) as server:
         client = HedgehogClient(zmq_aio_ctx, server)
 
         with pytest.raises(RuntimeError):
@@ -168,17 +157,18 @@ async def test_daemon_context_first(zmq_aio_ctx: zmq.asyncio.Context, start_serv
 
         # confirm the client works after a failure
         async with client:
-            assert await client.get_analog(0) == 0
+            assert await client.get_analog(port) == value
 
 
 @pytest.mark.asyncio
-async def test_shutdown_context(connect_server):
-    async with connect_server() as client:
+async def test_shutdown_context(connect_dummy):
+    port, value = 0, 0
+    async with connect_dummy(Commands.analog_request, port, value) as client:
         async def do_something():
-            assert await client.get_analog(0) == 0
+            assert await client.get_analog(port) == value
             await asyncio.sleep(2)
             with pytest.raises(errors.EmergencyShutdown):
-                await client.get_analog(0)
+                await client.get_analog(port)
 
             # this should not raise an exception into `await task`
             raise errors.EmergencyShutdown()
@@ -192,7 +182,7 @@ async def test_shutdown_context(connect_server):
         assert client.is_shutdown and not client.is_closed
 
         with pytest.raises(errors.EmergencyShutdown):
-            await client.get_analog(0)
+            await client.get_analog(port)
 
         # this should not raise an exception from `do_something`
         await task
@@ -204,12 +194,13 @@ async def test_shutdown_context(connect_server):
 
 
 @pytest.mark.asyncio
-async def test_reuse_after_shutdown(zmq_aio_ctx: zmq.asyncio.Context, start_server):
-    async with start_server() as server:
+async def test_reuse_after_shutdown(zmq_aio_ctx: zmq.asyncio.Context, start_dummy):
+    port, value = 0, 0
+    async with start_dummy(Commands.analog_request, port, value) as server:
         client = HedgehogClient(zmq_aio_ctx, server)
 
         async with client:
-            assert await client.get_analog(0) == 0
+            assert await client.get_analog(port) == value
 
         with pytest.raises(RuntimeError):
             async with client:
@@ -220,8 +211,9 @@ async def test_reuse_after_shutdown(zmq_aio_ctx: zmq.asyncio.Context, start_serv
 
 
 @pytest.mark.asyncio
-async def test_faulty_client(zmq_aio_ctx: zmq.asyncio.Context, start_server):
-    async with start_server() as server:
+async def test_faulty_client(zmq_aio_ctx: zmq.asyncio.Context, start_dummy):
+    port, value = 0, 0
+    async with start_dummy(Commands.analog_request, port, value) as server:
         class MyException(Exception):
             pass
 
@@ -244,12 +236,12 @@ async def test_faulty_client(zmq_aio_ctx: zmq.asyncio.Context, start_server):
         faulty = False
 
         async with client:
-            assert await client.get_analog(0) == 0
+            assert await client.get_analog(port) == value
 
 
 @pytest.mark.asyncio
-async def test_unsupported(connect_server):
-    async with connect_server(hardware_adapter=HardwareAdapter()) as client:
+async def test_unsupported(connect_dummy):
+    async with connect_dummy(Commands.unsupported) as client:
         with pytest.raises(errors.UnsupportedCommandError):
             await client.get_analog(0)
 

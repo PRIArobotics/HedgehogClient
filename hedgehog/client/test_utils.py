@@ -86,6 +86,31 @@ def start_server_sync(start_server):
 
 class Commands(object):
     @staticmethod
+    async def concurrent_analog_digital_requests(server, port_a, value_a, port_d, value_d):
+        async def handle_a(ident, msg):
+            assert msg == analog.Request(port_a)
+            await server.send_msg(ident, analog.Reply(port_a, value_a))
+
+        async def handle_d(ident, msg):
+            assert msg == digital.Request(port_d)
+            await server.send_msg(ident, digital.Reply(port_d, value_d))
+
+        ident, msg = await server.recv_msg()
+        if isinstance(msg, analog.Request):
+            await handle_a(ident, msg)
+            ident, msg = await server.recv_msg()
+            await handle_d(ident, msg)
+        else:
+            await handle_d(ident, msg)
+            ident, msg = await server.recv_msg()
+            await handle_a(ident, msg)
+
+    @staticmethod
+    async def unsupported(server):
+        ident, msg = await server.recv_msg()
+        await server.send_msg(ident, ack.Acknowledgement(ack.UNSUPPORTED_COMMAND))
+
+    @staticmethod
     async def io_action_input(server, port, pullup):
         ident, msg = await server.recv_msg()
         assert msg == io.Action(port, io.INPUT_PULLUP if pullup else io.INPUT_FLOATING)
