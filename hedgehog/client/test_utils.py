@@ -9,7 +9,7 @@ from contextlib import contextmanager, asynccontextmanager
 from concurrent_utils.event_loop_thread import EventLoopThread
 from hedgehog.protocol import ServerSide
 from hedgehog.protocol.zmq.asyncio import DealerRouterSocket
-from hedgehog.protocol.messages import Message, ack, analog, digital, io, motor, servo, process, speaker
+from hedgehog.protocol.messages import Message, ack, analog, digital, imu, io, motor, servo, process, speaker
 
 
 @pytest.fixture
@@ -77,6 +77,24 @@ class Commands(object):
     async def unsupported(server):
         ident, msg = await server.recv_msg()
         await server.send_msg(ident, ack.Acknowledgement(ack.UNSUPPORTED_COMMAND))
+
+    @staticmethod
+    async def imu_rate_request(server, x, y, z):
+        ident, msg = await server.recv_msg()
+        assert msg == imu.RateRequest()
+        await server.send_msg(ident, imu.RateReply(x, y, z))
+
+    @staticmethod
+    async def imu_acceleration_request(server, x, y, z):
+        ident, msg = await server.recv_msg()
+        assert msg == imu.AccelerationRequest()
+        await server.send_msg(ident, imu.AccelerationReply(x, y, z))
+
+    @staticmethod
+    async def imu_pose_request(server, x, y, z):
+        ident, msg = await server.recv_msg()
+        assert msg == imu.PoseRequest()
+        await server.send_msg(ident, imu.PoseReply(x, y, z))
 
     @staticmethod
     async def io_action_input(server, port, pullup):

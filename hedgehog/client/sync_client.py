@@ -205,6 +205,15 @@ class HedgehogClientMixin(object):
     def get_servo_command(self, port: int) -> Tuple[bool, int]:
         return self._call_safe(lambda: self.client.get_servo_command(port))
 
+    def get_imu_rate(self) -> Tuple[int, int, int]:
+        return self._call_safe(lambda: self.client.get_imu_rate())
+
+    def get_imu_acceleration(self) -> Tuple[int, int, int]:
+        return self._call_safe(lambda: self.client.get_imu_acceleration())
+
+    def get_imu_pose(self) -> Tuple[int, int, int]:
+        return self._call_safe(lambda: self.client.get_imu_pose())
+
     def execute_process(self, *args: str, working_dir: str=None, on_stdout=None, on_stderr=None, on_exit=None) -> int:
         return self._call_safe(
             lambda: self.client.execute_process(*args, working_dir=working_dir,

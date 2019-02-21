@@ -307,6 +307,21 @@ class TestHedgehogClientAPI(object):
         with connect_dummy(Commands.servo_command_request, port, active, position) as client:
             assert client.get_servo_command(port) == (active, position)
 
+    def test_get_imu_rate(self, connect_dummy):
+        x, y, z = 0, 0, -100
+        with connect_dummy(Commands.imu_rate_request, x, y, z) as client:
+            assert client.get_imu_rate() == (x, y, z)
+
+    def test_get_imu_acceleration(self, connect_dummy):
+        x, y, z = 0, 0, -100
+        with connect_dummy(Commands.imu_acceleration_request, x, y, z) as client:
+            assert client.get_imu_acceleration() == (x, y, z)
+
+    def test_get_imu_pose(self, connect_dummy):
+        x, y, z = 0, 0, -100
+        with connect_dummy(Commands.imu_pose_request, x, y, z) as client:
+            assert client.get_imu_pose() == (x, y, z)
+
     def test_speaker_action(self, connect_dummy):
         frequency = 0
         with connect_dummy(Commands.speaker_action, frequency) as client:

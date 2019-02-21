@@ -14,7 +14,7 @@ from concurrent_utils.pipe import PipeEnd
 from concurrent_utils.component import Component, component_coro_wrapper, start_component
 from hedgehog.protocol import errors, ClientSide
 from hedgehog.protocol.zmq.asyncio import DealerRouterSocket
-from hedgehog.protocol.messages import Message, ack, io, analog, digital, motor, servo, process, speaker
+from hedgehog.protocol.messages import Message, ack, io, analog, digital, motor, servo, imu, process, speaker
 from . import shutdown_handler
 from .async_handlers import AsyncHandler, HandlerRegistry, ProcessHandler
 
@@ -348,6 +348,18 @@ class HedgehogClientMixin:
         response = cast(servo.CommandReply, await self.send(servo.CommandRequest(port)))
         assert response.port == port
         return response.active, response.position
+
+    async def get_imu_rate(self) -> Tuple[int, int, int]:
+        response = cast(imu.RateReply, await self.send(imu.RateRequest()))
+        return response.x, response.y, response.z
+
+    async def get_imu_acceleration(self) -> Tuple[int, int, int]:
+        response = cast(imu.AccelerationReply, await self.send(imu.AccelerationRequest()))
+        return response.x, response.y, response.z
+
+    async def get_imu_pose(self) -> Tuple[int, int, int]:
+        response = cast(imu.PoseReply, await self.send(imu.PoseRequest()))
+        return response.x, response.y, response.z
 
     async def execute_process(self, *args: str, working_dir: str=None, on_stdout=None, on_stderr=None, on_exit=None) -> int:
         if on_stdout is not None or on_stderr is not None or on_exit is not None:

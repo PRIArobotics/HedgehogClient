@@ -347,6 +347,24 @@ class TestHedgehogClientAPI(object):
             assert await client.get_servo_command(port) == (active, position)
 
     @pytest.mark.asyncio
+    async def test_get_imu_rate(self, connect_dummy):
+        x, y, z = 0, 0, -100
+        async with connect_dummy(Commands.imu_rate_request, x, y, z) as client:
+            assert await client.get_imu_rate() == (x, y, z)
+
+    @pytest.mark.asyncio
+    async def test_get_imu_acceleration(self, connect_dummy):
+        x, y, z = 0, 0, -100
+        async with connect_dummy(Commands.imu_acceleration_request, x, y, z) as client:
+            assert await client.get_imu_acceleration() == (x, y, z)
+
+    @pytest.mark.asyncio
+    async def test_get_imu_pose(self, connect_dummy):
+        x, y, z = 0, 0, -100
+        async with connect_dummy(Commands.imu_pose_request, x, y, z) as client:
+            assert await client.get_imu_pose() == (x, y, z)
+
+    @pytest.mark.asyncio
     async def test_speaker_action(self, connect_dummy):
         frequency = 0
         async with connect_dummy(Commands.speaker_action, frequency) as client:
