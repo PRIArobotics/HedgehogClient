@@ -307,6 +307,15 @@ class TestHedgehogClientAPI(object):
         with connect_dummy(Commands.servo_command_request, port, active, position) as client:
             assert client.get_servo_command(port) == (active, position)
 
+    def test_speaker_action(self, connect_dummy):
+        frequency = 0
+        with connect_dummy(Commands.speaker_action, frequency) as client:
+            assert client.set_speaker(frequency) is None
+
+        frequency = 440
+        with connect_dummy(Commands.speaker_action, frequency) as client:
+            assert client.set_speaker(frequency) is None
+
 
 class TestHedgehogClientProcessAPI(object):
     def test_execute_process_handle_nothing(self, connect_dummy):

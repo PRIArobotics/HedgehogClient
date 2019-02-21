@@ -14,7 +14,7 @@ from concurrent_utils.pipe import PipeEnd
 from concurrent_utils.component import Component, component_coro_wrapper, start_component
 from hedgehog.protocol import errors, ClientSide
 from hedgehog.protocol.zmq.asyncio import DealerRouterSocket
-from hedgehog.protocol.messages import Message, ack, io, analog, digital, motor, servo, process
+from hedgehog.protocol.messages import Message, ack, io, analog, digital, motor, servo, process, speaker
 from . import shutdown_handler
 from .async_handlers import AsyncHandler, HandlerRegistry, ProcessHandler
 
@@ -362,6 +362,9 @@ class HedgehogClientMixin:
 
     async def send_process_data(self, pid: int, chunk: bytes=b'') -> None:
         await self.send(process.StreamAction(pid, process.STDIN, chunk))
+
+    async def set_speaker(self, frequency: Optional[int]) -> None:
+        await self.send(speaker.Action(frequency))
 
 
 class HedgehogClient(HedgehogClientMixin, AsyncClient):

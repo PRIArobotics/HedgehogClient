@@ -1,4 +1,4 @@
-from typing import Awaitable, Callable, Tuple, TypeVar
+from typing import Awaitable, Callable, Optional, Tuple, TypeVar
 
 import concurrent.futures
 import logging
@@ -215,6 +215,9 @@ class HedgehogClientMixin(object):
 
     def send_process_data(self, pid: int, chunk: bytes=b'') -> None:
         self._call_safe(lambda: self.client.send_process_data(pid, chunk))
+
+    def set_speaker(self, frequency: Optional[int]) -> None:
+        self._call_safe(lambda: self.client.set_speaker(frequency))
 
 
 class HedgehogClient(HedgehogClientMixin, SyncClient):

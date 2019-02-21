@@ -346,6 +346,16 @@ class TestHedgehogClientAPI(object):
         async with connect_dummy(Commands.servo_command_request, port, active, position) as client:
             assert await client.get_servo_command(port) == (active, position)
 
+    @pytest.mark.asyncio
+    async def test_speaker_action(self, connect_dummy):
+        frequency = 0
+        async with connect_dummy(Commands.speaker_action, frequency) as client:
+            assert await client.set_speaker(frequency) is None
+
+        frequency = 440
+        async with connect_dummy(Commands.speaker_action, frequency) as client:
+            assert await client.set_speaker(frequency) is None
+
 
 class TestHedgehogClientProcessAPI(object):
     @pytest.mark.asyncio

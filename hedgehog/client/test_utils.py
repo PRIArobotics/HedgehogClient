@@ -9,7 +9,7 @@ from contextlib import contextmanager, asynccontextmanager
 from concurrent_utils.event_loop_thread import EventLoopThread
 from hedgehog.protocol import ServerSide
 from hedgehog.protocol.zmq.asyncio import DealerRouterSocket
-from hedgehog.protocol.messages import Message, ack, analog, digital, io, motor, servo, process
+from hedgehog.protocol.messages import Message, ack, analog, digital, io, motor, servo, process, speaker
 
 
 @pytest.fixture
@@ -179,4 +179,10 @@ class Commands(object):
 
         await server.send_msg(ident, process.StreamUpdate(pid, process.STDERR))
         await server.send_msg(ident, process.ExitUpdate(pid, 0))
+
+    @staticmethod
+    async def speaker_action(server, frequency):
+        ident, msg = await server.recv_msg()
+        assert msg == speaker.Action(frequency)
+        await server.send_msg(ident, ack.Acknowledgement())
 
