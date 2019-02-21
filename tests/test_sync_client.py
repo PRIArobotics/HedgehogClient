@@ -278,6 +278,9 @@ class TestHedgehogClientAPI(object):
         with connect_dummy(Commands.motor_action, port, state, amount) as client:
             assert client.set_motor(port, state, amount) is None
 
+        with connect_dummy(Commands.motor_action, port, state, amount) as client:
+            assert client.move(port, amount) is None
+
     def test_get_motor_command(self, connect_dummy):
         port, state, amount = 0, motor.POWER, 0
         with connect_dummy(Commands.motor_command_request, port, state, amount) as client:
@@ -287,6 +290,12 @@ class TestHedgehogClientAPI(object):
         port, velocity, position = 0, 0, 0
         with connect_dummy(Commands.motor_state_request, port, velocity, position) as client:
             assert client.get_motor_state(port) == (velocity, position)
+
+        with connect_dummy(Commands.motor_state_request, port, velocity, position) as client:
+            assert client.get_motor_velocity(port) == velocity
+
+        with connect_dummy(Commands.motor_state_request, port, velocity, position) as client:
+            assert client.get_motor_position(port) == position
 
     def test_set_motor_position(self, connect_dummy):
         port, position = 0, 0

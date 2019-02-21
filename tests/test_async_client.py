@@ -312,6 +312,9 @@ class TestHedgehogClientAPI(object):
         async with connect_dummy(Commands.motor_action, port, state, amount) as client:
             assert await client.set_motor(port, state, amount) is None
 
+        async with connect_dummy(Commands.motor_action, port, state, amount) as client:
+            assert await client.move(port, amount) is None
+
     @pytest.mark.asyncio
     async def test_get_motor_command(self, connect_dummy):
         port, state, amount = 0, motor.POWER, 0
@@ -323,6 +326,12 @@ class TestHedgehogClientAPI(object):
         port, velocity, position = 0, 0, 0
         async with connect_dummy(Commands.motor_state_request, port, velocity, position) as client:
             assert await client.get_motor_state(port) == (velocity, position)
+
+        async with connect_dummy(Commands.motor_state_request, port, velocity, position) as client:
+            assert await client.get_motor_velocity(port) == velocity
+
+        async with connect_dummy(Commands.motor_state_request, port, velocity, position) as client:
+            assert await client.get_motor_position(port) == position
 
     @pytest.mark.asyncio
     async def test_set_motor_position(self, connect_dummy):
