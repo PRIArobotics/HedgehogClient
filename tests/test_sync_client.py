@@ -252,6 +252,27 @@ class TestHedgehogClientAPI(object):
         with connect_dummy(Commands.io_action_output, port, level) as client:
             assert client.set_digital_output(port, level) is None
 
+    def test_configure_motor(self, connect_dummy):
+        port = 0
+        with connect_dummy(Commands.motor_config_action, port, motor.DcConfig()) as client:
+            assert client.configure_motor(port, motor.DcConfig()) is None
+
+    def test_configure_motor_dc(self, connect_dummy):
+        port = 0
+        with connect_dummy(Commands.motor_config_action, port, motor.DcConfig()) as client:
+            assert client.configure_motor_dc(port) is None
+
+    def test_configure_motor_encoder(self, connect_dummy):
+        port, encoder_a_port, encoder_b_port = 0, 0, 1
+        config = motor.EncoderConfig(encoder_a_port, encoder_b_port)
+        with connect_dummy(Commands.motor_config_action, port, config) as client:
+            assert client.configure_motor_encoder(port, encoder_a_port, encoder_b_port) is None
+
+    def test_configure_motor_stepper(self, connect_dummy):
+        port = 0
+        with connect_dummy(Commands.motor_config_action, port, motor.StepperConfig()) as client:
+            assert client.configure_motor_stepper(port) is None
+
     def test_set_motor(self, connect_dummy):
         port, state, amount = 0, motor.POWER, 100
         with connect_dummy(Commands.motor_action, port, state, amount) as client:

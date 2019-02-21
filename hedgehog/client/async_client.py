@@ -286,6 +286,18 @@ class HedgehogClientMixin:
         assert response.port == port
         return response.flags
 
+    async def configure_motor(self, port: int, config: motor.Config) -> int:
+        await self.send(motor.ConfigAction(port, config))
+
+    async def configure_motor_dc(self, port: int) -> int:
+        await self.configure_motor(port, motor.DcConfig())
+
+    async def configure_motor_encoder(self, port: int, encoder_a_port: int, encoder_b_port: int) -> int:
+        await self.configure_motor(port, motor.EncoderConfig(encoder_a_port, encoder_b_port))
+
+    async def configure_motor_stepper(self, port: int) -> int:
+        await self.configure_motor(port, motor.StepperConfig())
+
     async def set_motor(self, port: int, state: int, amount: int=0,
                   reached_state: int=motor.POWER, relative: int=None, absolute: int=None,
                   on_reached: Callable[[int, int], None]=None) -> None:

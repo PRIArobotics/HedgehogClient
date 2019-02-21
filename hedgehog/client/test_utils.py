@@ -109,6 +109,12 @@ class Commands(object):
         await server.send_msg(ident, ack.Acknowledgement())
 
     @staticmethod
+    async def motor_config_action(server, port, config):
+        ident, msg = await server.recv_msg()
+        assert msg == motor.ConfigAction(port, config)
+        await server.send_msg(ident, ack.Acknowledgement())
+
+    @staticmethod
     async def motor_action(server, port, state, amount):
         ident, msg = await server.recv_msg()
         assert msg == motor.Action(port, state, amount)
