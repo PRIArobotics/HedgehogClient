@@ -47,13 +47,12 @@ setup(
     # requirements files see:
     # https://packaging.python.org/en/latest/requirements.html
     install_requires=['concurrent-utils ~=0.2.0', 'hedgehog-protocol ~=0.8.0rc1',
-                      'hedgehog-utils[protobuf,zmq,trio] ~=0.7.0rc1', 'pycreate2'],
+                      'hedgehog-utils[protobuf,zmq] ~=0.7.0rc1', 'pycreate2'],
 
     # You can install these using the following syntax, for example:
     # $ pip install -e .[dev,test]
     extras_require={
-        'dev': ['hedgehog-server ~=0.9.0a1',
-                'pytest', 'pytest-runner', 'pytest-asyncio', 'pytest-cov', 'pytest-timeout', 'mypy'],
+        'dev': ['pytest', 'pytest-runner', 'pytest-asyncio', 'pytest-cov', 'pytest-timeout', 'mypy'],
     },
 
     # package_data={

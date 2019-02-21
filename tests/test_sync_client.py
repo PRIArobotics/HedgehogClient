@@ -2,7 +2,7 @@ from typing import Awaitable, Callable
 
 import pytest
 from hedgehog.utils.test_utils import zmq_aio_ctx
-from hedgehog.client.test_utils import start_dummy, start_dummy_sync, start_server, start_server_sync, Commands
+from hedgehog.client.test_utils import start_dummy, start_dummy_sync, Commands
 
 import time
 import zmq.asyncio
@@ -13,12 +13,10 @@ from hedgehog.client.sync_client import HedgehogClient, connect
 from hedgehog.protocol import errors
 from hedgehog.protocol.messages import io, motor, process
 from hedgehog.protocol.zmq import DealerRouterSocket
-from hedgehog.server.hardware import HardwareAdapter
-from hedgehog.server.hardware.mocked import MockedHardwareAdapter
 
 
 # Pytest fixtures
-zmq_aio_ctx, start_dummy, start_dummy_sync, start_server, start_server_sync
+zmq_aio_ctx, start_dummy, start_dummy_sync
 
 
 # additional fixtures
@@ -40,18 +38,6 @@ def connect_dummy(start_dummy_sync, connect_client):
                    endpoint: str='inproc://controller', client_class=HedgehogClient, **kwargs):
         with start_dummy_sync(server_coro, *args, endpoint=endpoint, **kwargs) as dummy, \
                 connect_client(dummy, client_class=client_class) as client:
-            yield client
-
-    return do_connect
-
-
-@pytest.fixture
-def connect_server(start_server_sync, connect_client):
-    @contextmanager
-    def do_connect(hardware_adapter: HardwareAdapter=None, endpoint: str='inproc://controller',
-                   client_class=HedgehogClient):
-        with start_server_sync(hardware_adapter=hardware_adapter, endpoint=endpoint) as server, \
-                connect_client(server, client_class=client_class) as client:
             yield client
 
     return do_connect

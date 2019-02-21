@@ -10,17 +10,6 @@ from concurrent_utils.event_loop_thread import EventLoopThread
 from hedgehog.protocol import ServerSide
 from hedgehog.protocol.zmq.asyncio import DealerRouterSocket
 from hedgehog.protocol.messages import Message, ack, analog, digital, io, motor, servo, process
-from hedgehog.server import handlers, HedgehogServer
-from hedgehog.server.handlers.hardware import HardwareHandler
-from hedgehog.server.handlers.process import ProcessHandler
-from hedgehog.server.hardware import HardwareAdapter
-from hedgehog.server.hardware.mocked import MockedHardwareAdapter
-
-
-def handler(adapter: HardwareAdapter=None) -> handlers.HandlerCallbackDict:
-    if adapter is None:
-        adapter = MockedHardwareAdapter()
-    return handlers.merge(HardwareHandler(adapter), ProcessHandler(adapter))
 
 
 @pytest.fixture
@@ -59,27 +48,6 @@ def start_dummy_sync(start_dummy):
         with EventLoopThread() as looper, \
                 looper.context(start_dummy(server_coro, *args, endpoint=endpoint, **kwargs)) as dummy:
             yield dummy
-
-    return do_start
-
-
-@pytest.fixture
-def start_server(zmq_aio_ctx: zmq.asyncio.Context):
-    @asynccontextmanager
-    async def do_start(hardware_adapter: HardwareAdapter=None, endpoint: str='inproc://controller'):
-        async with HedgehogServer.start(zmq_aio_ctx, endpoint, handler(hardware_adapter)):
-            yield endpoint
-
-    return do_start
-
-
-@pytest.fixture
-def start_server_sync(start_server):
-    @contextmanager
-    def do_start(hardware_adapter: HardwareAdapter=None, endpoint: str='inproc://controller'):
-        with EventLoopThread() as looper, \
-                looper.context(start_server(hardware_adapter=hardware_adapter, endpoint=endpoint)) as server:
-            yield server
 
     return do_start
 
