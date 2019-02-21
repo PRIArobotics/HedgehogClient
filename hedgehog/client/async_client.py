@@ -13,10 +13,10 @@ from functools import partial
 from concurrent_utils.pipe import PipeEnd
 from concurrent_utils.component import Component, component_coro_wrapper, start_component
 from hedgehog.protocol import errors, ClientSide
-from hedgehog.protocol.async_sockets import DealerRouterSocket
-from hedgehog.protocol.messages import Message, ack, io, analog, digital, motor, servo, process
+from hedgehog.protocol.zmq.asyncio import DealerRouterSocket
+from hedgehog.protocol.messages import Message, ack, io, analog, digital, motor, servo, imu, process, speaker
 from . import shutdown_handler
-from .async_handlers import EventHandler, HandlerRegistry, process_handler
+from .async_handlers import AsyncHandler, HandlerRegistry, ProcessHandler
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +28,6 @@ class AsyncClient:
         self.registry = HandlerRegistry()
         self.socket = None  # type: DealerRouterSocket
         self._reply_condition = asyncio.Condition()
-        self._handlers: Deque[Sequence[EventHandler]] = deque()
         self._replies: Deque[Sequence[Message]] = deque()
 
         self._open_count = 0
@@ -160,20 +159,12 @@ class AsyncClient:
 
     @property
     @asynccontextmanager
-    async def job(self):
+    async def _job(self):
         if self._open_count == 0:
             raise RuntimeError("The client is not active, use `async with client:`")
 
         async with self._reply_condition:
             yield
-
-    def _push_replies(self, msgs: Sequence[Message]) -> None:
-        self._replies.append(msgs)
-        self._reply_condition.notify()
-
-    async def _pop_replies(self) -> Sequence[Message]:
-        await self._reply_condition.wait()
-        return self._replies.popleft()
 
     async def _handle_updates(self):
         while True:
@@ -183,14 +174,18 @@ class AsyncClient:
                 # either, all messages are replies corresponding to the previous requests,
                 # or all messages are asynchronous updates
                 if msgs[0].is_async:
+                    assert all(msg.is_async for msg in msgs)
+
                     # handle asynchronous messages
                     logger.debug("Receive updates: %s", msgs)
-                    self.registry.handle_async(msgs)
+                    self.registry.handle_updates(msgs)
                 else:
+                    assert not any(msg.is_async for msg in msgs)
+
                     # handle synchronous messages
-                    handlers = self._handlers.popleft()
-                    self.registry.register(handlers, msgs)
-                    self._push_replies(msgs)
+                    self.registry.complete_register(msgs)
+                    self._replies.append(msgs)
+                    self._reply_condition.notify()
 
     async def _workload(self, *, commands: PipeEnd, events: PipeEnd) -> None:
         with DealerRouterSocket(self.ctx, zmq.DEALER, side=ClientSide) as self.socket:
@@ -215,7 +210,7 @@ class AsyncClient:
     async def workload(self, *, commands: PipeEnd, events: PipeEnd) -> None:
         return await component_coro_wrapper(self._workload, commands=commands, events=events)
 
-    async def send(self, msg: Message, handler: EventHandler=None) -> Optional[Message]:
+    async def send(self, msg: Message, handler: AsyncHandler=None) -> Optional[Message]:
         reply, = await self.send_multipart((msg, handler))
         if isinstance(reply, ack.Acknowledgement):
             if reply.code != ack.OK:
@@ -224,8 +219,8 @@ class AsyncClient:
         else:
             return reply
 
-    async def send_multipart(self, *cmds: Tuple[Message, EventHandler]) -> Any:
-        async with self.job:
+    async def send_multipart(self, *cmds: Tuple[Message, AsyncHandler]) -> Any:
+        async with self._job:
             if self._shutdown:
                 replies = [ack.Acknowledgement(ack.FAILED_COMMAND, "Emergency Shutdown activated") for _ in cmds]
                 for _, handler in cmds:
@@ -236,7 +231,7 @@ class AsyncClient:
                 return await self._send(tuple(request for request, _ in cmds), tuple(handler for _, handler in cmds))
 
     async def shutdown(self) -> None:
-        async with self.job:
+        async with self._job:
             if not self._shutdown:
                 self._shutdown = True
                 self.registry.shutdown()
@@ -246,11 +241,13 @@ class AsyncClient:
                 msgs.extend(servo.Action(port, False, 0) for port in range(0, 4))
                 await self._send(msgs, tuple(None for _ in msgs))
 
-    async def _send(self, requests: Sequence[Message], handlers: Sequence[EventHandler]) -> Sequence[Message]:
+    async def _send(self, requests: Sequence[Message], handlers: Sequence[AsyncHandler]) -> Sequence[Message]:
         logger.debug("Send commands:   %s", requests)
+        self.registry.prepare_register(handlers)
         await self.socket.send_msgs((), requests)
-        self._handlers.append(handlers)
-        replies = await self._pop_replies()
+
+        await self._reply_condition.wait()
+        replies = self._replies.popleft()
         logger.debug("Receive replies: %s", replies)
         return replies
 
@@ -288,6 +285,18 @@ class HedgehogClientMixin:
         response = cast(io.CommandReply, await self.send(io.CommandRequest(port)))
         assert response.port == port
         return response.flags
+
+    async def configure_motor(self, port: int, config: motor.Config) -> int:
+        await self.send(motor.ConfigAction(port, config))
+
+    async def configure_motor_dc(self, port: int) -> int:
+        await self.configure_motor(port, motor.DcConfig())
+
+    async def configure_motor_encoder(self, port: int, encoder_a_port: int, encoder_b_port: int) -> int:
+        await self.configure_motor(port, motor.EncoderConfig(encoder_a_port, encoder_b_port))
+
+    async def configure_motor_stepper(self, port: int) -> int:
+        await self.configure_motor(port, motor.StepperConfig())
 
     async def set_motor(self, port: int, state: int, amount: int=0,
                   reached_state: int=motor.POWER, relative: int=None, absolute: int=None,
@@ -340,9 +349,21 @@ class HedgehogClientMixin:
         assert response.port == port
         return response.active, response.position
 
+    async def get_imu_rate(self) -> Tuple[int, int, int]:
+        response = cast(imu.RateReply, await self.send(imu.RateRequest()))
+        return response.x, response.y, response.z
+
+    async def get_imu_acceleration(self) -> Tuple[int, int, int]:
+        response = cast(imu.AccelerationReply, await self.send(imu.AccelerationRequest()))
+        return response.x, response.y, response.z
+
+    async def get_imu_pose(self) -> Tuple[int, int, int]:
+        response = cast(imu.PoseReply, await self.send(imu.PoseRequest()))
+        return response.x, response.y, response.z
+
     async def execute_process(self, *args: str, working_dir: str=None, on_stdout=None, on_stderr=None, on_exit=None) -> int:
         if on_stdout is not None or on_stderr is not None or on_exit is not None:
-            handler = process_handler(on_stdout, on_stderr, on_exit)
+            handler = ProcessHandler(on_stdout, on_stderr, on_exit)
         else:
             handler = None
         response = cast(process.ExecuteReply, await self.send(process.ExecuteAction(*args, working_dir=working_dir), handler))
@@ -353,6 +374,9 @@ class HedgehogClientMixin:
 
     async def send_process_data(self, pid: int, chunk: bytes=b'') -> None:
         await self.send(process.StreamAction(pid, process.STDIN, chunk))
+
+    async def set_speaker(self, frequency: Optional[int]) -> None:
+        await self.send(speaker.Action(frequency))
 
 
 class HedgehogClient(HedgehogClientMixin, AsyncClient):

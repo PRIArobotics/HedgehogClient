@@ -8,19 +8,8 @@ from contextlib import contextmanager, asynccontextmanager
 
 from concurrent_utils.event_loop_thread import EventLoopThread
 from hedgehog.protocol import ServerSide
-from hedgehog.protocol.async_sockets import DealerRouterSocket
-from hedgehog.protocol.messages import Message, ack, analog, digital, io, motor, servo, process
-from hedgehog.server import handlers, HedgehogServer
-from hedgehog.server.handlers.hardware import HardwareHandler
-from hedgehog.server.handlers.process import ProcessHandler
-from hedgehog.server.hardware import HardwareAdapter
-from hedgehog.server.hardware.mocked import MockedHardwareAdapter
-
-
-def handler(adapter: HardwareAdapter=None) -> handlers.HandlerCallbackDict:
-    if adapter is None:
-        adapter = MockedHardwareAdapter()
-    return handlers.merge(HardwareHandler(adapter), ProcessHandler(adapter))
+from hedgehog.protocol.zmq.asyncio import DealerRouterSocket
+from hedgehog.protocol.messages import Message, ack, analog, digital, imu, io, motor, servo, process, speaker
 
 
 @pytest.fixture
@@ -63,28 +52,50 @@ def start_dummy_sync(start_dummy):
     return do_start
 
 
-@pytest.fixture
-def start_server(zmq_aio_ctx: zmq.asyncio.Context):
-    @asynccontextmanager
-    async def do_start(hardware_adapter: HardwareAdapter=None, endpoint: str='inproc://controller'):
-        async with HedgehogServer.start(zmq_aio_ctx, endpoint, handler(hardware_adapter)):
-            yield endpoint
-
-    return do_start
-
-
-@pytest.fixture
-def start_server_sync(start_server):
-    @contextmanager
-    def do_start(hardware_adapter: HardwareAdapter=None, endpoint: str='inproc://controller'):
-        with EventLoopThread() as looper, \
-                looper.context(start_server(hardware_adapter=hardware_adapter, endpoint=endpoint)) as server:
-            yield server
-
-    return do_start
-
-
 class Commands(object):
+    @staticmethod
+    async def concurrent_analog_digital_requests(server, port_a, value_a, port_d, value_d):
+        async def handle_a(ident, msg):
+            assert msg == analog.Request(port_a)
+            await server.send_msg(ident, analog.Reply(port_a, value_a))
+
+        async def handle_d(ident, msg):
+            assert msg == digital.Request(port_d)
+            await server.send_msg(ident, digital.Reply(port_d, value_d))
+
+        ident, msg = await server.recv_msg()
+        if isinstance(msg, analog.Request):
+            await handle_a(ident, msg)
+            ident, msg = await server.recv_msg()
+            await handle_d(ident, msg)
+        else:
+            await handle_d(ident, msg)
+            ident, msg = await server.recv_msg()
+            await handle_a(ident, msg)
+
+    @staticmethod
+    async def unsupported(server):
+        ident, msg = await server.recv_msg()
+        await server.send_msg(ident, ack.Acknowledgement(ack.UNSUPPORTED_COMMAND))
+
+    @staticmethod
+    async def imu_rate_request(server, x, y, z):
+        ident, msg = await server.recv_msg()
+        assert msg == imu.RateRequest()
+        await server.send_msg(ident, imu.RateReply(x, y, z))
+
+    @staticmethod
+    async def imu_acceleration_request(server, x, y, z):
+        ident, msg = await server.recv_msg()
+        assert msg == imu.AccelerationRequest()
+        await server.send_msg(ident, imu.AccelerationReply(x, y, z))
+
+    @staticmethod
+    async def imu_pose_request(server, x, y, z):
+        ident, msg = await server.recv_msg()
+        assert msg == imu.PoseRequest()
+        await server.send_msg(ident, imu.PoseReply(x, y, z))
+
     @staticmethod
     async def io_action_input(server, port, pullup):
         ident, msg = await server.recv_msg()
@@ -116,6 +127,12 @@ class Commands(object):
         await server.send_msg(ident, ack.Acknowledgement())
 
     @staticmethod
+    async def motor_config_action(server, port, config):
+        ident, msg = await server.recv_msg()
+        assert msg == motor.ConfigAction(port, config)
+        await server.send_msg(ident, ack.Acknowledgement())
+
+    @staticmethod
     async def motor_action(server, port, state, amount):
         ident, msg = await server.recv_msg()
         assert msg == motor.Action(port, state, amount)
@@ -125,7 +142,7 @@ class Commands(object):
     async def motor_command_request(server, port, state, amount):
         ident, msg = await server.recv_msg()
         assert msg == motor.CommandRequest(port)
-        await server.send_msg(ident, motor.CommandReply(port, state, amount))
+        await server.send_msg(ident, motor.CommandReply(port, motor.DcConfig(), state, amount))
 
     @staticmethod
     async def motor_state_request(server, port, velocity, position):
@@ -180,4 +197,10 @@ class Commands(object):
 
         await server.send_msg(ident, process.StreamUpdate(pid, process.STDERR))
         await server.send_msg(ident, process.ExitUpdate(pid, 0))
+
+    @staticmethod
+    async def speaker_action(server, frequency):
+        ident, msg = await server.recv_msg()
+        assert msg == speaker.Action(frequency)
+        await server.send_msg(ident, ack.Acknowledgement())
 
