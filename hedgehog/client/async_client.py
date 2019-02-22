@@ -341,13 +341,26 @@ class HedgehogClientMixin:
     async def set_motor_position(self, port: int, position: int) -> None:
         await self.send(motor.SetPositionAction(port, position))
 
-    async def set_servo(self, port: int, active: bool, position: int) -> None:
-        await self.send(servo.Action(port, active, position))
+    async def set_servo(self, port: int, position: Optional[int]) -> None:
+        if position is not None:
+            # position is in range 0..1000 but must be in range 1000..5000
+            position = 1000 + 4*position
+        await self.set_servo_raw(port, position)
 
-    async def get_servo_command(self, port: int) -> Tuple[bool, int]:
+    async def set_servo_raw(self, port: int, position: Optional[int]) -> None:
+        # position is in range 1000..5000, which is the duty cycle length in 0.5us units
+        await self.send(servo.Action(port, position is not None, position))
+
+    async def get_servo_position(self, port: int) -> Optional[int]:
+        position = await self.get_servo_position_raw(port)
+        if position is not None:
+            position = (position - 1000) // 4
+        return position
+
+    async def get_servo_position_raw(self, port: int) -> Optional[int]:
         response = cast(servo.CommandReply, await self.send(servo.CommandRequest(port)))
         assert response.port == port
-        return response.active, response.position
+        return response.position if response.active else None
 
     async def get_imu_rate(self) -> Tuple[int, int, int]:
         response = cast(imu.RateReply, await self.send(imu.RateRequest()))

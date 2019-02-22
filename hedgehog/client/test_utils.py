@@ -157,16 +157,16 @@ class Commands(object):
         await server.send_msg(ident, ack.Acknowledgement())
 
     @staticmethod
-    async def servo_action(server, port, active, position):
+    async def servo_action(server, port, raw_position):
         ident, msg = await server.recv_msg()
-        assert msg == servo.Action(port, active, position)
+        assert msg == servo.Action(port, raw_position is not None, raw_position)
         await server.send_msg(ident, ack.Acknowledgement())
 
     @staticmethod
-    async def servo_command_request(server, port, active, position):
+    async def servo_command_request(server, port, raw_position):
         ident, msg = await server.recv_msg()
         assert msg == servo.CommandRequest(port)
-        await server.send_msg(ident, servo.CommandReply(port, active, position))
+        await server.send_msg(ident, servo.CommandReply(port, raw_position is not None, raw_position))
 
     @staticmethod
     async def execute_process_echo_asdf(server, pid):

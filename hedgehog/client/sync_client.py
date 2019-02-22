@@ -199,11 +199,17 @@ class HedgehogClientMixin(object):
     def set_motor_position(self, port: int, position: int) -> None:
         self._call_safe(lambda: self.client.set_motor_position(port, position))
 
-    def set_servo(self, port: int, active: bool, position: int) -> None:
-        self._call_safe(lambda: self.client.set_servo(port, active, position))
+    def set_servo(self, port: int, position: Optional[int]) -> None:
+        self._call_safe(lambda: self.client.set_servo(port, position))
 
-    def get_servo_command(self, port: int) -> Tuple[bool, int]:
-        return self._call_safe(lambda: self.client.get_servo_command(port))
+    def set_servo_raw(self, port: int, position: Optional[int]) -> None:
+        self._call_safe(lambda: self.client.set_servo_raw(port, position))
+
+    def get_servo_position(self, port: int) -> Optional[int]:
+        return self._call_safe(lambda: self.client.get_servo_position(port))
+
+    def get_servo_position_raw(self, port: int) -> Optional[int]:
+        return self._call_safe(lambda: self.client.get_servo_position_raw(port))
 
     def get_imu_rate(self) -> Tuple[int, int, int]:
         return self._call_safe(lambda: self.client.get_imu_rate())
