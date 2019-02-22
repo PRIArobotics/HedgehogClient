@@ -238,7 +238,7 @@ class AsyncClient:
 
                 msgs = []  # type: List[Message]
                 msgs.extend(motor.Action(port, motor.POWER, 0) for port in range(0, 4))
-                msgs.extend(servo.Action(port, False, 0) for port in range(0, 4))
+                msgs.extend(servo.Action(port, None) for port in range(0, 4))
                 await self._send(msgs, tuple(None for _ in msgs))
 
     async def _send(self, requests: Sequence[Message], handlers: Sequence[AsyncHandler]) -> Sequence[Message]:
@@ -349,7 +349,7 @@ class HedgehogClientMixin:
 
     async def set_servo_raw(self, port: int, position: Optional[int]) -> None:
         # position is in range 1000..5000, which is the duty cycle length in 0.5us units
-        await self.send(servo.Action(port, position is not None, position))
+        await self.send(servo.Action(port, position))
 
     async def get_servo_position(self, port: int) -> Optional[int]:
         position = await self.get_servo_position_raw(port)
@@ -360,7 +360,7 @@ class HedgehogClientMixin:
     async def get_servo_position_raw(self, port: int) -> Optional[int]:
         response = cast(servo.CommandReply, await self.send(servo.CommandRequest(port)))
         assert response.port == port
-        return response.position if response.active else None
+        return response.position
 
     async def get_imu_rate(self) -> Tuple[int, int, int]:
         response = cast(imu.RateReply, await self.send(imu.RateRequest()))
