@@ -379,7 +379,17 @@ class HedgehogClientMixin:
         await self.send(speaker.Action(frequency))
 
 
-class HedgehogClient(HedgehogClientMixin, AsyncClient):
+class HedgehogClientLegoMixin:
+    async def configure_lego_motor(self, port: int) -> None:
+        await self.configure_motor_encoder(port, 2*port, 2*port+1)
+
+    async def configure_lego_sensor(self, port: int) -> None:
+        if not 8 <= port < 12:
+            raise ValueError("Only sensors 8-11 have Lego sensor jacks")
+        await self.set_input_state(port, True)
+
+
+class HedgehogClient(HedgehogClientMixin, HedgehogClientLegoMixin, AsyncClient):
     pass
 
 

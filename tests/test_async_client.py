@@ -384,6 +384,27 @@ class TestHedgehogClientAPI(object):
             assert await client.set_speaker(frequency) is None
 
 
+class TestHedgehogLegoClientAPI(object):
+    @pytest.mark.asyncio
+    async def test_configure_lego_motor(self, connect_dummy):
+        port, encoder_a_port, encoder_b_port = 1, 2, 3
+        config = motor.EncoderConfig(encoder_a_port, encoder_b_port)
+        async with connect_dummy(Commands.motor_config_action, port, config) as client:
+            assert await client.configure_lego_motor(port) is None
+
+    @pytest.mark.asyncio
+    async def test_configure_lego_sensor(self, connect_dummy):
+        port, pullup = 8, True
+        async with connect_dummy(Commands.io_action_input, port, pullup) as client:
+            assert await client.configure_lego_sensor(port) is None
+
+            with pytest.raises(ValueError):
+                await client.configure_lego_sensor(7)
+
+            with pytest.raises(ValueError):
+                await client.configure_lego_sensor(12)
+
+
 class TestHedgehogClientProcessAPI(object):
     @pytest.mark.asyncio
     async def test_execute_process_handle_nothing(self, connect_dummy):

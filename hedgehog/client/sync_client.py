@@ -229,7 +229,15 @@ class HedgehogClientMixin(object):
         self._call_safe(lambda: self.client.set_speaker(frequency))
 
 
-class HedgehogClient(HedgehogClientMixin, SyncClient):
+class HedgehogClientLegoMixin:
+    def configure_lego_motor(self, port: int) -> None:
+        self._call_safe(lambda: self.client.configure_lego_motor(port))
+
+    def configure_lego_sensor(self, port: int) -> None:
+        self._call_safe(lambda: self.client.configure_lego_sensor(port))
+
+
+class HedgehogClient(HedgehogClientMixin, HedgehogClientLegoMixin, SyncClient):
     pass
 
 

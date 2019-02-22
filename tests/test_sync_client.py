@@ -341,6 +341,25 @@ class TestHedgehogClientAPI(object):
             assert client.set_speaker(frequency) is None
 
 
+class TestHedgehogLegoClientAPI(object):
+    def test_configure_lego_motor(self, connect_dummy):
+        port, encoder_a_port, encoder_b_port = 1, 2, 3
+        config = motor.EncoderConfig(encoder_a_port, encoder_b_port)
+        with connect_dummy(Commands.motor_config_action, port, config) as client:
+            assert client.configure_lego_motor(port) is None
+
+    def test_configure_lego_sensor(self, connect_dummy):
+        port, pullup = 8, True
+        with connect_dummy(Commands.io_action_input, port, pullup) as client:
+            assert client.configure_lego_sensor(port) is None
+
+            with pytest.raises(ValueError):
+                client.configure_lego_sensor(7)
+
+            with pytest.raises(ValueError):
+                client.configure_lego_sensor(12)
+
+
 class TestHedgehogClientProcessAPI(object):
     def test_execute_process_handle_nothing(self, connect_dummy):
         pid = 2345
