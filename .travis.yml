@@ -3,7 +3,7 @@ sudo: false
 
 matrix:
   include:
-    - python: 3.7
+    - python: '3.7'
       dist: xenial  # https://github.com/travis-ci/travis-ci/issues/9815
       sudo: true
 
