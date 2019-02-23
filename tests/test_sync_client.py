@@ -303,18 +303,56 @@ class TestHedgehogClientAPI(object):
             assert client.set_motor_position(port, position) is None
 
     def test_set_servo(self, connect_dummy):
-        port, active, position = 0, False, 0
-        with connect_dummy(Commands.servo_action, port, active, position) as client:
-            assert client.set_servo(port, active, position) is None
+        port, position, raw_position = 0, None, None
+        with connect_dummy(Commands.servo_action, port, raw_position) as client:
+            assert client.set_servo(port, position) is None
 
-    def test_get_servo_command(self, connect_dummy):
-        port, active, position = 0, False, None
-        with connect_dummy(Commands.servo_command_request, port, active, position) as client:
-            assert client.get_servo_command(port) == (active, position)
+        port, position, raw_position = 0, 0, 1000
+        with connect_dummy(Commands.servo_action, port, raw_position) as client:
+            assert client.set_servo(port, position) is None
 
-        port, active, position = 0, True, 0
-        with connect_dummy(Commands.servo_command_request, port, active, position) as client:
-            assert client.get_servo_command(port) == (active, position)
+        port, position, raw_position = 0, 1000, 5000
+        with connect_dummy(Commands.servo_action, port, raw_position) as client:
+            assert client.set_servo(port, position) is None
+
+    def test_set_servo_raw(self, connect_dummy):
+        port, raw_position = 0, None
+        with connect_dummy(Commands.servo_action, port, raw_position) as client:
+            assert client.set_servo_raw(port, raw_position) is None
+
+        port, raw_position = 0, 1000
+        with connect_dummy(Commands.servo_action, port, raw_position) as client:
+            assert client.set_servo_raw(port, raw_position) is None
+
+        port, raw_position = 0, 5000
+        with connect_dummy(Commands.servo_action, port, raw_position) as client:
+            assert client.set_servo_raw(port, raw_position) is None
+
+    def test_get_servo_position(self, connect_dummy):
+        port, position, raw_position = 0, None, None
+        with connect_dummy(Commands.servo_command_request, port, raw_position) as client:
+            assert client.get_servo_position(port) == position
+
+        port, position, raw_position = 0, 0, 1000
+        with connect_dummy(Commands.servo_command_request, port, raw_position) as client:
+            assert client.get_servo_position(port) == position
+
+        port, position, raw_position = 0, 1000, 5000
+        with connect_dummy(Commands.servo_command_request, port, raw_position) as client:
+            assert client.get_servo_position(port) == position
+
+    def test_get_servo_position_raw(self, connect_dummy):
+        port, raw_position = 0, None
+        with connect_dummy(Commands.servo_command_request, port, raw_position) as client:
+            assert client.get_servo_position_raw(port) == raw_position
+
+        port, raw_position = 0, 1000
+        with connect_dummy(Commands.servo_command_request, port, raw_position) as client:
+            assert client.get_servo_position_raw(port) == raw_position
+
+        port, raw_position = 0, 5000
+        with connect_dummy(Commands.servo_command_request, port, raw_position) as client:
+            assert client.get_servo_position_raw(port) == raw_position
 
     def test_get_imu_rate(self, connect_dummy):
         x, y, z = 0, 0, -100
@@ -339,6 +377,25 @@ class TestHedgehogClientAPI(object):
         frequency = 440
         with connect_dummy(Commands.speaker_action, frequency) as client:
             assert client.set_speaker(frequency) is None
+
+
+class TestHedgehogLegoClientAPI(object):
+    def test_configure_lego_motor(self, connect_dummy):
+        port, encoder_a_port, encoder_b_port = 1, 2, 3
+        config = motor.EncoderConfig(encoder_a_port, encoder_b_port)
+        with connect_dummy(Commands.motor_config_action, port, config) as client:
+            assert client.configure_lego_motor(port) is None
+
+    def test_configure_lego_sensor(self, connect_dummy):
+        port, pullup = 8, True
+        with connect_dummy(Commands.io_action_input, port, pullup) as client:
+            assert client.configure_lego_sensor(port) is None
+
+            with pytest.raises(ValueError):
+                client.configure_lego_sensor(7)
+
+            with pytest.raises(ValueError):
+                client.configure_lego_sensor(12)
 
 
 class TestHedgehogClientProcessAPI(object):

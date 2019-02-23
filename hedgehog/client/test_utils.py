@@ -26,7 +26,7 @@ def start_dummy(zmq_aio_ctx: zmq.asyncio.Context):
                 ident, msgs = await socket.recv_msgs()
                 _msgs = []  # type: List[Message]
                 _msgs.extend(motor.Action(port, motor.POWER, 0) for port in range(0, 4))
-                _msgs.extend(servo.Action(port, False, 0) for port in range(0, 4))
+                _msgs.extend(servo.Action(port, None) for port in range(0, 4))
                 assert msgs == tuple(_msgs)
                 await socket.send_msgs(ident, [ack.Acknowledgement()] * 8)
 
@@ -157,16 +157,16 @@ class Commands(object):
         await server.send_msg(ident, ack.Acknowledgement())
 
     @staticmethod
-    async def servo_action(server, port, active, position):
+    async def servo_action(server, port, raw_position):
         ident, msg = await server.recv_msg()
-        assert msg == servo.Action(port, active, position)
+        assert msg == servo.Action(port, raw_position)
         await server.send_msg(ident, ack.Acknowledgement())
 
     @staticmethod
-    async def servo_command_request(server, port, active, position):
+    async def servo_command_request(server, port, raw_position):
         ident, msg = await server.recv_msg()
         assert msg == servo.CommandRequest(port)
-        await server.send_msg(ident, servo.CommandReply(port, active, position))
+        await server.send_msg(ident, servo.CommandReply(port, raw_position))
 
     @staticmethod
     async def execute_process_echo_asdf(server, pid):
