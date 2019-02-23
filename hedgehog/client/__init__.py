@@ -1,6 +1,8 @@
 from contextlib import contextmanager
 from pycreate2 import Create2
 from .sync_client import HedgehogClient, connect
+# for using POWER, BRAKE and VELOCITY
+from hedgehog.protocol.messages import motor
 
 
 @contextmanager
