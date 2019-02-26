@@ -7,7 +7,7 @@ import zmq.asyncio
 from contextlib import contextmanager, asynccontextmanager
 
 from concurrent_utils.event_loop_thread import EventLoopThread
-from hedgehog.protocol import ServerSide
+from hedgehog.protocol import ServerSide, errors
 from hedgehog.protocol.zmq.asyncio import DealerRouterSocket
 from hedgehog.protocol.messages import Message, ack, analog, digital, imu, io, motor, servo, process, speaker
 
@@ -53,6 +53,15 @@ def start_dummy_sync(start_dummy):
 
 
 class Commands(object):
+    @staticmethod
+    async def multipart_motor_requests(server, port_a, state_a, amount_a, port_b, state_b, amount_b):
+        ident, (msg_a, msg_b) = await server.recv_msgs()
+        assert msg_a == motor.Action(port_a, state_a, amount_a)
+        assert msg_b == motor.Action(port_b, state_b, amount_b)
+        reply_a = ack.Acknowledgement() if 0 <= port_a < 4 else errors.FailedCommandError().to_message()
+        reply_b = ack.Acknowledgement() if 0 <= port_b < 4 else errors.FailedCommandError().to_message()
+        await server.send_msgs(ident, (reply_a, reply_b))
+
     @staticmethod
     async def concurrent_analog_digital_requests(server, port_a, value_a, port_d, value_d):
         async def handle_a(ident, msg):

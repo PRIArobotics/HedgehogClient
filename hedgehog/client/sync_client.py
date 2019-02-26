@@ -1,4 +1,4 @@
-from typing import Awaitable, Callable, Optional, Tuple, TypeVar
+from typing import Awaitable, Callable, Optional, Sequence, Tuple, TypeVar
 
 import concurrent.futures
 import logging
@@ -11,8 +11,9 @@ from contextlib import contextmanager, ExitStack
 from functools import partial
 
 from concurrent_utils.event_loop_thread import EventLoopThread
-from hedgehog.protocol.messages import motor
+from hedgehog.protocol.messages import Message, motor
 from . import async_client, shutdown_handler
+from .async_handlers import AsyncHandler
 
 logger = logging.getLogger(__name__)
 
@@ -119,6 +120,15 @@ class SyncClient(object):
     @property
     def is_closed(self):
         return self.client is not None and self.client.is_closed
+
+    def send(self, msg: Message, handler: AsyncHandler=None) -> Optional[Message]:
+        return self._call_safe(lambda: self.client.send(msg, handler))
+
+    def commands(self, *cmds: Message) -> None:
+        self._call_safe(lambda: self.client.commands(*cmds))
+
+    def send_multipart(self, *cmds: Tuple[Message, AsyncHandler]) -> Sequence[Message]:
+        return self._call_safe(lambda: self.client.send_multipart(*cmds))
 
     def shutdown(self) -> None:
         self._call_safe(lambda: self.client.shutdown())
@@ -243,7 +253,9 @@ class HedgehogClientLegoMixin:
         self._call_safe(lambda: self.client.configure_lego_sensor(port))
 
 
-class HedgehogClient(HedgehogClientMixin, HedgehogClientLegoMixin, SyncClient):
+class HedgehogClient(async_client.HedgehogClientCommandsMixin, HedgehogClientMixin,
+                     async_client.HedgehogClientLegoCommandsMixin, HedgehogClientLegoMixin,
+                     SyncClient):
     pass
 
 

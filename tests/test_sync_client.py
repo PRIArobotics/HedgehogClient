@@ -45,6 +45,23 @@ def connect_dummy(start_dummy_sync, connect_client):
 
 # tests
 
+def test_multipart_commands(connect_dummy):
+    port_a, state_a, amount_a, port_b, state_b, amount_b = 0, motor.POWER, 100, 3, motor.POWER, 100
+    with connect_dummy(Commands.multipart_motor_requests, port_a, state_a, amount_a, port_b, state_b, amount_b) as client:
+        client.commands(
+            client.move_cmd(port_a, amount_a, state_a),
+            client.move_cmd(port_b, amount_b, state_b),
+        )
+
+    port_a, state_a, amount_a, port_b, state_b, amount_b = 0, motor.POWER, 100, 4, motor.POWER, 100
+    with connect_dummy(Commands.multipart_motor_requests, port_a, state_a, amount_a, port_b, state_b, amount_b) as client:
+        with pytest.raises(errors.FailedCommandError):
+            client.commands(
+                client.move_cmd(port_a, amount_a, state_a),
+                client.move_cmd(port_b, amount_b, state_b),
+            )
+
+
 def test_command(connect_dummy):
     port, pullup = 0, False
     with connect_dummy(Commands.io_action_input, port, pullup) as client:

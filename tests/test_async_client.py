@@ -45,6 +45,24 @@ def connect_dummy(start_dummy, connect_client):
 # tests
 
 @pytest.mark.asyncio
+async def test_multipart_commands(connect_dummy):
+    port_a, state_a, amount_a, port_b, state_b, amount_b = 0, motor.POWER, 100, 3, motor.POWER, 100
+    async with connect_dummy(Commands.multipart_motor_requests, port_a, state_a, amount_a, port_b, state_b, amount_b) as client:
+        await client.commands(
+            client.move_cmd(port_a, amount_a, state_a),
+            client.move_cmd(port_b, amount_b, state_b),
+        )
+
+    port_a, state_a, amount_a, port_b, state_b, amount_b = 0, motor.POWER, 100, 4, motor.POWER, 100
+    async with connect_dummy(Commands.multipart_motor_requests, port_a, state_a, amount_a, port_b, state_b, amount_b) as client:
+        with pytest.raises(errors.FailedCommandError):
+            await client.commands(
+                client.move_cmd(port_a, amount_a, state_a),
+                client.move_cmd(port_b, amount_b, state_b),
+            )
+
+
+@pytest.mark.asyncio
 async def test_concurrent_commands(connect_dummy):
     port_a, value_a, port_d, value_d = 0, 0, 0, True
     async with connect_dummy(Commands.concurrent_analog_digital_requests, port_a, value_a, port_d, value_d) as client:
