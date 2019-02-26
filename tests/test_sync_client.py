@@ -45,6 +45,25 @@ def connect_dummy(start_dummy_sync, connect_client):
 
 # tests
 
+def test_multipart_commands(connect_dummy):
+    from hedgehog.protocol.messages import analog, digital
+
+    port_a, value_a, port_d, value_d = 0, 0, 0, True
+    with connect_dummy(Commands.multipart_analog_digital_requests, port_a, value_a, port_d, value_d) as client:
+        client.commands(
+            analog.Request(port_a),
+            digital.Request(port_d),
+        )
+
+    port_a, value_a, port_d, value_d = 0, 0, 16, True
+    with connect_dummy(Commands.multipart_analog_digital_requests, port_a, value_a, port_d, value_d) as client:
+        with pytest.raises(errors.FailedCommandError):
+            client.commands(
+                analog.Request(port_a),
+                digital.Request(port_d),
+            )
+
+
 def test_command(connect_dummy):
     port, pullup = 0, False
     with connect_dummy(Commands.io_action_input, port, pullup) as client:

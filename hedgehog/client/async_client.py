@@ -219,7 +219,22 @@ class AsyncClient:
         else:
             return reply
 
-    async def send_multipart(self, *cmds: Tuple[Message, AsyncHandler]) -> Any:
+    async def commands(self, *cmds: Message) -> None:
+        def is_error(reply):
+            return isinstance(reply, ack.Acknowledgement) and reply.code != ack.OK
+
+        def reply_str(reply):
+            if is_error(reply):
+                return repr(errors.error(reply.code, reply.message))
+            else:
+                return "OK"
+
+        replies = await self.send_multipart(*((cmd, None) for cmd in cmds))
+        if any(is_error(reply) for reply in replies):
+            msg = ', '.join(f'{index}: {reply_str(reply)}' for index, reply in enumerate(replies))
+            raise errors.FailedCommandError(f"at least one command failed: {msg}")
+
+    async def send_multipart(self, *cmds: Tuple[Message, AsyncHandler]) -> Sequence[Message]:
         async with self._job:
             if self._shutdown:
                 replies = [ack.Acknowledgement(ack.FAILED_COMMAND, "Emergency Shutdown activated") for _ in cmds]
