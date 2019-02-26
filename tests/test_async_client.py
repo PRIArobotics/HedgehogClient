@@ -46,21 +46,19 @@ def connect_dummy(start_dummy, connect_client):
 
 @pytest.mark.asyncio
 async def test_multipart_commands(connect_dummy):
-    from hedgehog.protocol.messages import analog, digital
-
-    port_a, value_a, port_d, value_d = 0, 0, 0, True
-    async with connect_dummy(Commands.multipart_analog_digital_requests, port_a, value_a, port_d, value_d) as client:
+    port_a, state_a, amount_a, port_b, state_b, amount_b = 0, motor.POWER, 100, 3, motor.POWER, 100
+    async with connect_dummy(Commands.multipart_motor_requests, port_a, state_a, amount_a, port_b, state_b, amount_b) as client:
         await client.commands(
-            analog.Request(port_a),
-            digital.Request(port_d),
+            client.move_cmd(port_a, amount_a, state_a),
+            client.move_cmd(port_b, amount_b, state_b),
         )
 
-    port_a, value_a, port_d, value_d = 0, 0, 16, True
-    async with connect_dummy(Commands.multipart_analog_digital_requests, port_a, value_a, port_d, value_d) as client:
+    port_a, state_a, amount_a, port_b, state_b, amount_b = 0, motor.POWER, 100, 4, motor.POWER, 100
+    async with connect_dummy(Commands.multipart_motor_requests, port_a, state_a, amount_a, port_b, state_b, amount_b) as client:
         with pytest.raises(errors.FailedCommandError):
             await client.commands(
-                analog.Request(port_a),
-                digital.Request(port_d),
+                client.move_cmd(port_a, amount_a, state_a),
+                client.move_cmd(port_b, amount_b, state_b),
             )
 
 

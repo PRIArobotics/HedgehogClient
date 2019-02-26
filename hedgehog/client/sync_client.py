@@ -253,7 +253,9 @@ class HedgehogClientLegoMixin:
         self._call_safe(lambda: self.client.configure_lego_sensor(port))
 
 
-class HedgehogClient(HedgehogClientMixin, HedgehogClientLegoMixin, SyncClient):
+class HedgehogClient(async_client.HedgehogClientCommandsMixin, HedgehogClientMixin,
+                     async_client.HedgehogClientLegoCommandsMixin, HedgehogClientLegoMixin,
+                     SyncClient):
     pass
 
 

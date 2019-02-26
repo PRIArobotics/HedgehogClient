@@ -54,13 +54,13 @@ def start_dummy_sync(start_dummy):
 
 class Commands(object):
     @staticmethod
-    async def multipart_analog_digital_requests(server, port_a, value_a, port_d, value_d):
-        ident, (msg_a, msg_d) = await server.recv_msgs()
-        assert msg_a == analog.Request(port_a)
-        assert msg_d == digital.Request(port_d)
-        reply_a = analog.Reply(port_a, value_a) if 0 <= port_a < 16 else errors.FailedCommandError().to_message()
-        reply_d = digital.Reply(port_d, value_d) if 0 <= port_d < 16 else errors.FailedCommandError().to_message()
-        await server.send_msgs(ident, (reply_a, reply_d))
+    async def multipart_motor_requests(server, port_a, state_a, amount_a, port_b, state_b, amount_b):
+        ident, (msg_a, msg_b) = await server.recv_msgs()
+        assert msg_a == motor.Action(port_a, state_a, amount_a)
+        assert msg_b == motor.Action(port_b, state_b, amount_b)
+        reply_a = ack.Acknowledgement() if 0 <= port_a < 4 else errors.FailedCommandError().to_message()
+        reply_b = ack.Acknowledgement() if 0 <= port_b < 4 else errors.FailedCommandError().to_message()
+        await server.send_msgs(ident, (reply_a, reply_b))
 
     @staticmethod
     async def concurrent_analog_digital_requests(server, port_a, value_a, port_d, value_d):

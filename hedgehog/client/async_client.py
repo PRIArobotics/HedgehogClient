@@ -279,6 +279,64 @@ class AsyncClient:
         return result
 
 
+class HedgehogClientCommandsMixin:
+    def set_input_state_cmd(self, port: int, pullup: bool) -> Message:
+        return io.Action(port, io.INPUT_PULLUP if pullup else io.INPUT_FLOATING)
+
+    def set_digital_output_cmd(self, port: int, level: bool) -> Message:
+        return io.Action(port, io.OUTPUT_ON if level else io.OUTPUT_OFF)
+
+    def configure_motor_cmd(self, port: int, config: motor.Config) -> Message:
+        return motor.ConfigAction(port, config)
+
+    def configure_motor_dc_cmd(self, port: int) -> Message:
+        return self.configure_motor_cmd(port, motor.DcConfig())
+
+    def configure_motor_encoder_cmd(self, port: int, encoder_a_port: int, encoder_b_port: int) -> Message:
+        return self.configure_motor_cmd(port, motor.EncoderConfig(encoder_a_port, encoder_b_port))
+
+    def configure_motor_stepper_cmd(self, port: int) -> Message:
+        return self.configure_motor_cmd(port, motor.StepperConfig())
+
+    def set_motor_cmd(self, port: int, state: int, amount: int=0,
+                  reached_state: int=motor.POWER, relative: int=None, absolute: int=None) -> Message:
+        return motor.Action(port, state, amount, reached_state, relative, absolute)
+
+    def move_cmd(self, port: int, amount: int, state: int=motor.POWER) -> Message:
+        return self.set_motor_cmd(port, state, amount)
+
+    def move_relative_position_cmd(self, port: int, amount: int, relative: int, state: int=motor.POWER) -> Message:
+        return self.set_motor_cmd(port, state, amount, relative=relative)
+
+    def move_absolute_position_cmd(self, port: int, amount: int, absolute: int, state: int=motor.POWER) -> Message:
+        return self.set_motor_cmd(port, state, amount, absolute=absolute)
+
+    def set_motor_position_cmd(self, port: int, position: int) -> Message:
+        return motor.SetPositionAction(port, position)
+
+    def set_servo_cmd(self, port: int, position: Optional[int]) -> Message:
+        if position is not None:
+            # position is in range 0..1000 but must be in range 1000..5000
+            position = 1000 + 4*position
+        return self.set_servo_raw_cmd(port, position)
+
+    def set_servo_raw_cmd(self, port: int, position: Optional[int]) -> Message:
+        # position is in range 1000..5000, which is the duty cycle length in 0.5us units
+        return servo.Action(port, position)
+
+    def execute_process_cmd(self, *args: str, working_dir: str=None) -> Message:
+        return process.ExecuteAction(*args, working_dir=working_dir)
+
+    def signal_process_cmd(self, pid: int, signal: int=2) -> Message:
+        return process.SignalAction(pid, signal)
+
+    def send_process_data_cmd(self, pid: int, chunk: bytes=b'') -> Message:
+        return process.StreamAction(pid, process.STDIN, chunk)
+
+    def set_speaker_cmd(self, frequency: Optional[int]) -> Message:
+        return speaker.Action(frequency)
+
+
 class HedgehogClientMixin:
     async def set_input_state(self, port: int, pullup: bool) -> None:
         await self.send(io.Action(port, io.INPUT_PULLUP if pullup else io.INPUT_FLOATING))
@@ -407,6 +465,16 @@ class HedgehogClientMixin:
         await self.send(speaker.Action(frequency))
 
 
+class HedgehogClientLegoCommandsMixin:
+    def configure_lego_motor_cmd(self, port: int) -> Message:
+        return self.configure_motor_encoder_cmd(port, 2*port, 2*port+1)
+
+    def configure_lego_sensor_cmd(self, port: int) -> Message:
+        if not 8 <= port < 12:
+            raise ValueError("Only sensors 8-11 have Lego sensor jacks")
+        return self.set_input_state_cmd(port, True)
+
+
 class HedgehogClientLegoMixin:
     async def configure_lego_motor(self, port: int) -> None:
         await self.configure_motor_encoder(port, 2*port, 2*port+1)
@@ -417,7 +485,9 @@ class HedgehogClientLegoMixin:
         await self.set_input_state(port, True)
 
 
-class HedgehogClient(HedgehogClientMixin, HedgehogClientLegoMixin, AsyncClient):
+class HedgehogClient(HedgehogClientCommandsMixin, HedgehogClientMixin,
+                     HedgehogClientLegoCommandsMixin, HedgehogClientLegoMixin,
+                     AsyncClient):
     pass
 
 
