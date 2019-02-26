@@ -298,18 +298,21 @@ class HedgehogClientCommandsMixin:
     def configure_motor_stepper_cmd(self, port: int) -> Message:
         return self.configure_motor_cmd(port, motor.StepperConfig())
 
-    def set_motor_cmd(self, port: int, state: int, amount: int=0,
-                  reached_state: int=motor.POWER, relative: int=None, absolute: int=None) -> Message:
-        return motor.Action(port, state, amount, reached_state, relative, absolute)
+    def move_motor_cmd(self, port: int, amount: int, mode: int=motor.POWER) -> Message:
+        return motor.Action(port, mode, amount)
 
-    def move_cmd(self, port: int, amount: int, state: int=motor.POWER) -> Message:
-        return self.set_motor_cmd(port, state, amount)
+    def motor_off_cmd(self, port: int) -> Message:
+        return self.move_motor_cmd(port, 0, motor.POWER)
 
-    def move_relative_position_cmd(self, port: int, amount: int, relative: int, state: int=motor.POWER) -> Message:
-        return self.set_motor_cmd(port, state, amount, relative=relative)
+    def brake_cmd(self, port: int) -> Message:
+        return self.move_motor_cmd(port, 1000, motor.BRAKE)
 
-    def move_absolute_position_cmd(self, port: int, amount: int, absolute: int, state: int=motor.POWER) -> Message:
-        return self.set_motor_cmd(port, state, amount, absolute=absolute)
+    # TODO proper definitions for positional & servo motor commands
+    # def move_motor_position_cmd(self, port: int, amount: int, mode: int=motor.POWER, done_mode=motor.BRAKE, *,
+    #                             relative=None, absolute=None) -> Message:
+    #     if (relative is None) == (absolute is None):
+    #         raise ValueError("exactly one of 'relative=...' and 'absolute=...' must be given")
+    #     return motor.Action(port, mode, amount, done_mode, relative, absolute)
 
     def set_motor_position_cmd(self, port: int, position: int) -> Message:
         return motor.SetPositionAction(port, position)
@@ -371,27 +374,21 @@ class HedgehogClientMixin:
     async def configure_motor_stepper(self, port: int) -> int:
         await self.configure_motor(port, motor.StepperConfig())
 
-    async def set_motor(self, port: int, state: int, amount: int=0,
-                  reached_state: int=motor.POWER, relative: int=None, absolute: int=None,
-                  on_reached: Callable[[int, int], None]=None) -> None:
-        # if on_reached is not None:
-        #     if relative is None and absolute is None:
-        #         raise ValueError("callback given, but no end position")
-        #     handler = MotorUpdateHandler(on_reached)
-        # else:
-        #     handler = None
-        await self.send(motor.Action(port, state, amount, reached_state, relative, absolute))
+    async def move_motor(self, port: int, amount: int, mode: int=motor.POWER) -> None:
+        await self.send(motor.Action(port, mode, amount))
 
-    async def move(self, port: int, amount: int, state: int=motor.POWER) -> None:
-        await self.set_motor(port, state, amount)
+    async def motor_off(self, port: int) -> None:
+        await self.move_motor(port, 0, motor.POWER)
 
-    async def move_relative_position(self, port: int, amount: int, relative: int, state: int=motor.POWER,
-                               on_reached: Callable[[int, int], None]=None) -> None:
-        await self.set_motor(port, state, amount, relative=relative, on_reached=on_reached)
+    async def brake(self, port: int) -> None:
+        await self.move_motor(port, 1000, motor.BRAKE)
 
-    async def move_absolute_position(self, port: int, amount: int, absolute: int, state: int=motor.POWER,
-                               on_reached: Callable[[int, int], None]=None) -> None:
-        await self.set_motor(port, state, amount, absolute=absolute, on_reached=on_reached)
+    # TODO proper definitions for positional & servo motor commands
+    # async def move_motor_position(self, port: int, amount: int, mode: int=motor.POWER, done_mode=motor.BRAKE, *,
+    #                               relative=None, absolute=None) -> None:
+    #     if (relative is None) == (absolute is None):
+    #         raise ValueError("exactly one of 'relative=...' and 'absolute=...' must be given")
+    #     await self.send(motor.Action(port, mode, amount, done_mode, relative, absolute))
 
     async def get_motor_command(self, port: int) -> Tuple[int, int]:
         response = cast(motor.CommandReply, await self.send(motor.CommandRequest(port)))

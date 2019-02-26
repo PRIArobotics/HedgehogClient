@@ -178,13 +178,20 @@ class HedgehogClientMixin(object):
     def configure_motor_stepper(self, port: int) -> int:
         self._call_safe(lambda: self.client.configure_motor_stepper(port))
 
-    def set_motor(self, port: int, state: int, amount: int=0,
-                  reached_state: int=motor.POWER, relative: int=None, absolute: int=None,
-                  on_reached: Callable[[int, int], None]=None) -> None:
-        self._call_safe(lambda: self.client.set_motor(port, state, amount, reached_state, relative, absolute, on_reached))
+    def move_motor(self, port: int, amount: int, mode: int=motor.POWER) -> None:
+        self._call_safe(lambda: self.client.move_motor(port, amount, mode))
 
-    def move(self, port: int, amount: int, state: int=motor.POWER) -> None:
-        self._call_safe(lambda: self.client.move(port, amount, state))
+    def motor_off(self, port: int) -> None:
+        self._call_safe(lambda: self.client.motor_off(port))
+
+    def brake(self, port: int) -> None:
+        self._call_safe(lambda: self.client.brake(port))
+
+    # TODO proper definitions for positional & servo motor commands
+    # def move_motor_position(self, port: int, amount: int, mode: int=motor.POWER, done_mode=motor.BRAKE, *,
+    #                         relative=None, absolute=None) -> None:
+    #     self._call_safe(lambda: self.client.motor_position(port, amount, mode, done_mode,
+    #                                                        relative=relative, absolute=absolute))
 
     def move_relative_position(self, port: int, amount: int, relative: int, state: int=motor.POWER,
                                on_reached: Callable[[int, int], None]=None) -> None:
