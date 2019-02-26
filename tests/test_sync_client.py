@@ -49,16 +49,16 @@ def test_multipart_commands(connect_dummy):
     port_a, state_a, amount_a, port_b, state_b, amount_b = 0, motor.POWER, 100, 3, motor.POWER, 100
     with connect_dummy(Commands.multipart_motor_requests, port_a, state_a, amount_a, port_b, state_b, amount_b) as client:
         client.commands(
-            client.move_cmd(port_a, amount_a, state_a),
-            client.move_cmd(port_b, amount_b, state_b),
+            client.move_motor_cmd(port_a, amount_a, state_a),
+            client.move_motor_cmd(port_b, amount_b, state_b),
         )
 
     port_a, state_a, amount_a, port_b, state_b, amount_b = 0, motor.POWER, 100, 4, motor.POWER, 100
     with connect_dummy(Commands.multipart_motor_requests, port_a, state_a, amount_a, port_b, state_b, amount_b) as client:
         with pytest.raises(errors.FailedCommandError):
             client.commands(
-                client.move_cmd(port_a, amount_a, state_a),
-                client.move_cmd(port_b, amount_b, state_b),
+                client.move_motor_cmd(port_a, amount_a, state_a),
+                client.move_motor_cmd(port_b, amount_b, state_b),
             )
 
 
@@ -290,13 +290,20 @@ class TestHedgehogClientAPI(object):
         with connect_dummy(Commands.motor_config_action, port, motor.StepperConfig()) as client:
             assert client.configure_motor_stepper(port) is None
 
-    def test_set_motor(self, connect_dummy):
+    def test_move_motor(self, connect_dummy):
         port, state, amount = 0, motor.POWER, 100
         with connect_dummy(Commands.motor_action, port, state, amount) as client:
-            assert client.set_motor(port, state, amount) is None
+            assert client.move_motor(port, amount) is None
 
+    def test_motor_off(self, connect_dummy):
+        port, state, amount = 0, motor.POWER, 0
         with connect_dummy(Commands.motor_action, port, state, amount) as client:
-            assert client.move(port, amount) is None
+            assert client.motor_off(port) is None
+
+    def test_brake(self, connect_dummy):
+        port, state, amount = 0, motor.BRAKE, 1000
+        with connect_dummy(Commands.motor_action, port, state, amount) as client:
+            assert client.brake(port) is None
 
     def test_get_motor_command(self, connect_dummy):
         port, state, amount = 0, motor.POWER, 0

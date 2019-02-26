@@ -49,16 +49,16 @@ async def test_multipart_commands(connect_dummy):
     port_a, state_a, amount_a, port_b, state_b, amount_b = 0, motor.POWER, 100, 3, motor.POWER, 100
     async with connect_dummy(Commands.multipart_motor_requests, port_a, state_a, amount_a, port_b, state_b, amount_b) as client:
         await client.commands(
-            client.move_cmd(port_a, amount_a, state_a),
-            client.move_cmd(port_b, amount_b, state_b),
+            client.move_motor_cmd(port_a, amount_a, state_a),
+            client.move_motor_cmd(port_b, amount_b, state_b),
         )
 
     port_a, state_a, amount_a, port_b, state_b, amount_b = 0, motor.POWER, 100, 4, motor.POWER, 100
     async with connect_dummy(Commands.multipart_motor_requests, port_a, state_a, amount_a, port_b, state_b, amount_b) as client:
         with pytest.raises(errors.FailedCommandError):
             await client.commands(
-                client.move_cmd(port_a, amount_a, state_a),
-                client.move_cmd(port_b, amount_b, state_b),
+                client.move_motor_cmd(port_a, amount_a, state_a),
+                client.move_motor_cmd(port_b, amount_b, state_b),
             )
 
 
@@ -325,13 +325,22 @@ class TestHedgehogClientAPI(object):
             assert await client.configure_motor_stepper(port) is None
 
     @pytest.mark.asyncio
-    async def test_set_motor(self, connect_dummy):
+    async def test_move_motor(self, connect_dummy):
         port, state, amount = 0, motor.POWER, 100
         async with connect_dummy(Commands.motor_action, port, state, amount) as client:
-            assert await client.set_motor(port, state, amount) is None
+            assert await client.move_motor(port, amount) is None
 
+    @pytest.mark.asyncio
+    async def test_motor_off(self, connect_dummy):
+        port, state, amount = 0, motor.POWER, 0
         async with connect_dummy(Commands.motor_action, port, state, amount) as client:
-            assert await client.move(port, amount) is None
+            assert await client.motor_off(port) is None
+
+    @pytest.mark.asyncio
+    async def test_brake(self, connect_dummy):
+        port, state, amount = 0, motor.BRAKE, 1000
+        async with connect_dummy(Commands.motor_action, port, state, amount) as client:
+            assert await client.brake(port) is None
 
     @pytest.mark.asyncio
     async def test_get_motor_command(self, connect_dummy):
