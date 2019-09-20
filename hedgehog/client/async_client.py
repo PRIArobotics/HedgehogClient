@@ -1,4 +1,4 @@
-from typing import cast, Any, Awaitable, Callable, Deque, List, Optional, Sequence, Tuple
+from typing import cast, Any, Awaitable, Callable, Deque, Dict, List, Optional, Sequence, Tuple
 
 import asyncio
 import logging
@@ -14,7 +14,7 @@ from concurrent_utils.pipe import PipeEnd
 from concurrent_utils.component import Component, component_coro_wrapper, start_component
 from hedgehog.protocol import errors, ClientSide
 from hedgehog.protocol.zmq.asyncio import DealerRouterSocket
-from hedgehog.protocol.messages import Message, ack, io, analog, digital, motor, servo, imu, process, speaker
+from hedgehog.protocol.messages import Message, ack, io, analog, digital, motor, servo, imu, process, speaker, vision
 from . import shutdown_handler
 from .async_handlers import AsyncHandler, HandlerRegistry, ProcessHandler
 
@@ -340,6 +340,24 @@ class HedgehogClientCommandsMixin:
     def set_speaker_cmd(self, frequency: Optional[int]) -> Message:
         return speaker.Action(frequency)
 
+    def open_camera_cmd(self) -> Message:
+        return vision.OpenCameraAction()
+
+    def close_camera_cmd(self) -> Message:
+        return vision.CloseCameraAction()
+
+    def create_channel_cmd(self, key: str, channel: vision.Channel) -> Message:
+        return vision.CreateChannelAction({key: channel})
+
+    def update_channel_cmd(self, key: str, channel: vision.Channel) -> Message:
+        return vision.UpdateChannelAction({key: channel})
+
+    def delete_channel_cmd(self, key: str) -> Message:
+        return vision.DeleteChannelAction({key})
+
+    def capture_frame_cmd(self) -> Message:
+        return vision.CaptureFrameAction()
+
 
 class HedgehogClientMixin:
     async def set_input_state(self, port: int, pullup: bool) -> None:
@@ -461,6 +479,43 @@ class HedgehogClientMixin:
 
     async def set_speaker(self, frequency: Optional[int]) -> None:
         await self.send(speaker.Action(frequency))
+
+    async def open_camera(self) -> None:
+        await self.send(vision.OpenCameraAction())
+
+    async def close_camera(self) -> None:
+        await self.send(vision.CloseCameraAction())
+
+    async def create_channel(self, key: str, channel: vision.Channel) -> None:
+        await self.send(vision.CreateChannelAction({key: channel}))
+
+    async def update_channel(self, key: str, channel: vision.Channel) -> None:
+        await self.send(vision.UpdateChannelAction({key: channel}))
+
+    async def delete_channel(self, key: str) -> None:
+        await self.send(vision.DeleteChannelAction({key}))
+
+    async def get_channel(self, key: str) -> vision.Channel:
+        response = cast(vision.ChannelReply, await self.send(vision.ChannelRequest({key})))
+        assert len(response.channels) == 1 and key in response.channels
+        return response.channels[key]
+
+    async def get_channels(self) -> Dict[str, vision.Channel]:
+        response = cast(vision.ChannelReply, await self.send(vision.ChannelRequest(set())))
+        return response.channels
+
+    async def capture_frame(self) -> None:
+        await self.send(vision.CaptureFrameAction())
+
+    async def get_frame(self, highlight: str = None) -> bytes:
+        response = cast(vision.FrameReply, await self.send(vision.FrameRequest(highlight)))
+        assert response.highlight == highlight
+        return response.frame
+
+    async def get_feature(self, channel: str) -> vision.Feature:
+        response = cast(vision.FeatureReply, await self.send(vision.FeatureRequest(channel)))
+        assert response.channel == channel
+        return response.feature
 
 
 class HedgehogClientLegoCommandsMixin:

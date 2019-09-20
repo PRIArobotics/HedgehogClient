@@ -11,7 +11,7 @@ from contextlib import contextmanager
 from concurrent_utils.pipe import PipeEnd
 from hedgehog.client.sync_client import HedgehogClient, connect
 from hedgehog.protocol import errors
-from hedgehog.protocol.messages import io, motor, process
+from hedgehog.protocol.messages import io, motor, process, vision
 from hedgehog.protocol.zmq import DealerRouterSocket
 
 
@@ -401,6 +401,53 @@ class TestHedgehogClientAPI(object):
         frequency = 440
         with connect_dummy(Commands.speaker_action, frequency) as client:
             assert client.set_speaker(frequency) is None
+
+    def test_open_camera(self, connect_dummy):
+        with connect_dummy(Commands.open_camera_action) as client:
+            assert client.open_camera() is None
+
+    def test_close_camera(self, connect_dummy):
+        with connect_dummy(Commands.close_camera_action) as client:
+            assert client.close_camera() is None
+
+    def test_create_channel(self, connect_dummy):
+        key, channel = 'foo', vision.FacesChannel()
+        with connect_dummy(Commands.create_channel_action, key, channel) as client:
+            assert client.create_channel(key, channel) is None
+
+    def test_update_channel(self, connect_dummy):
+        key, channel = 'foo', vision.FacesChannel()
+        with connect_dummy(Commands.update_channel_action, key, channel) as client:
+            assert client.update_channel(key, channel) is None
+
+    def test_delete_channel(self, connect_dummy):
+        key = 'foo'
+        with connect_dummy(Commands.delete_channel_action, key) as client:
+            assert client.delete_channel(key) is None
+
+    def test_get_channel(self, connect_dummy):
+        key, channel = 'foo', vision.FacesChannel()
+        with connect_dummy(Commands.channel_request, key, channel) as client:
+            assert client.get_channel(key) == channel
+
+    def test_get_channels(self, connect_dummy):
+        key, channel = 'foo', vision.FacesChannel()
+        with connect_dummy(Commands.channel_request_list, key, channel) as client:
+            assert client.get_channels() == {key: channel}
+
+    def test_capture_frame(self, connect_dummy):
+        with connect_dummy(Commands.capture_frame_action) as client:
+            assert client.capture_frame() is None
+
+    def test_get_frame(self, connect_dummy):
+        highlight, frame = 'foo', b'asdf'
+        with connect_dummy(Commands.frame_request, highlight, frame) as client:
+            assert client.get_frame(highlight) == frame
+
+    def test_get_feature(self, connect_dummy):
+        channel, frame = 'foo', vision.FacesFeature([])
+        with connect_dummy(Commands.feature_request, channel, frame) as client:
+            assert client.get_feature(channel) == frame
 
 
 class TestHedgehogLegoClientAPI(object):
