@@ -442,7 +442,7 @@ class TestHedgehogClientAPI(object):
 
     @pytest.mark.asyncio
     async def test_speaker_action(self, connect_dummy):
-        frequency = 0
+        frequency = None
         async with connect_dummy(Commands.speaker_action, frequency) as client:
             assert await client.set_speaker(frequency) is None
 

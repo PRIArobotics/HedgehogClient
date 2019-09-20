@@ -394,7 +394,7 @@ class TestHedgehogClientAPI(object):
             assert client.get_imu_pose() == (x, y, z)
 
     def test_speaker_action(self, connect_dummy):
-        frequency = 0
+        frequency = None
         with connect_dummy(Commands.speaker_action, frequency) as client:
             assert client.set_speaker(frequency) is None
 
