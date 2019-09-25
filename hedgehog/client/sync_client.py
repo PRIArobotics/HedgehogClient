@@ -166,16 +166,16 @@ class HedgehogClientMixin(object):
     def get_io_config(self, port: int) -> int:
         return self._call_safe(lambda: self.client.get_io_config(port))
 
-    def configure_motor(self, port: int, config: motor.Config) -> int:
+    def configure_motor(self, port: int, config: motor.Config) -> None:
         self._call_safe(lambda: self.client.configure_motor(port, config))
 
-    def configure_motor_dc(self, port: int) -> int:
+    def configure_motor_dc(self, port: int) -> None:
         self._call_safe(lambda: self.client.configure_motor_dc(port))
 
-    def configure_motor_encoder(self, port: int, encoder_a_port: int, encoder_b_port: int) -> int:
+    def configure_motor_encoder(self, port: int, encoder_a_port: int, encoder_b_port: int) -> None:
         self._call_safe(lambda: self.client.configure_motor_encoder(port, encoder_a_port, encoder_b_port))
 
-    def configure_motor_stepper(self, port: int) -> int:
+    def configure_motor_stepper(self, port: int) -> None:
         self._call_safe(lambda: self.client.configure_motor_stepper(port))
 
     def move_motor(self, port: int, amount: int, mode: int=motor.POWER) -> None:
