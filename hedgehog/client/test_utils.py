@@ -26,9 +26,10 @@ def start_dummy(zmq_aio_ctx: zmq.asyncio.Context):
                 ident, msgs = await socket.recv_msgs()
                 _msgs = []  # type: List[Message]
                 _msgs.extend(motor.Action(port, motor.POWER, 0) for port in range(0, 4))
-                _msgs.extend(servo.Action(port, None) for port in range(0, 4))
+                _msgs.extend(servo.Action(port, None) for port in range(0, 6))
+                _msgs.append(speaker.Action(None))
                 assert msgs == tuple(_msgs)
-                await socket.send_msgs(ident, [ack.Acknowledgement()] * 8)
+                await socket.send_msgs(ident, [ack.Acknowledgement()] * len(_msgs))
 
             task = asyncio.ensure_future(target())
             try:
