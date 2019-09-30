@@ -415,6 +415,11 @@ class TestHedgehogClientAPI(object):
         with connect_dummy(Commands.create_channel_action, key, channel) as client:
             assert client.create_channel(key, channel) is None
 
+    def test_camera(self, connect_dummy):
+        with connect_dummy(Commands.camera_context) as client:
+            with client.camera():
+                pass
+
     def test_update_channel(self, connect_dummy):
         key, channel = 'foo', vision.FacesChannel()
         with connect_dummy(Commands.update_channel_action, key, channel) as client:

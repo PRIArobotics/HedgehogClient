@@ -487,6 +487,14 @@ class HedgehogClientMixin:
     async def close_camera(self) -> None:
         await self.send(vision.CloseCameraAction())
 
+    @asynccontextmanager
+    async def camera(self) -> None:
+        try:
+            await self.open_camera()
+            yield
+        finally:
+            await self.close_camera()
+
     async def create_channel(self, key: str, channel: vision.Channel) -> None:
         await self.send(vision.CreateChannelAction({key: channel}))
 

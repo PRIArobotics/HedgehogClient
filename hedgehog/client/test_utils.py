@@ -228,6 +228,11 @@ class Commands(object):
         await server.send_msg(ident, ack.Acknowledgement())
 
     @staticmethod
+    async def camera_context(server):
+        await Commands.open_camera_action(server)
+        await Commands.close_camera_action(server)
+
+    @staticmethod
     async def create_channel_action(server, key, channel):
         ident, msg = await server.recv_msg()
         assert msg == vision.CreateChannelAction({key: channel})

@@ -257,6 +257,14 @@ class HedgehogClientMixin(object):
     def close_camera(self) -> None:
         self._call_safe(lambda: self.client.close_camera())
 
+    @contextmanager
+    def camera(self) -> None:
+        try:
+            self.open_camera()
+            yield
+        finally:
+            self.close_camera()
+
     def create_channel(self, key: str, channel: vision.Channel) -> None:
         self._call_safe(lambda: self.client.create_channel(key, channel))
 

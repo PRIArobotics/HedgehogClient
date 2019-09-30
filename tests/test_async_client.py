@@ -461,6 +461,12 @@ class TestHedgehogClientAPI(object):
             assert await client.close_camera() is None
 
     @pytest.mark.asyncio
+    async def test_camera(self, connect_dummy):
+        async with connect_dummy(Commands.camera_context) as client:
+            async with client.camera():
+                pass
+
+    @pytest.mark.asyncio
     async def test_create_channel(self, connect_dummy):
         key, channel = 'foo', vision.FacesChannel()
         async with connect_dummy(Commands.create_channel_action, key, channel) as client:
