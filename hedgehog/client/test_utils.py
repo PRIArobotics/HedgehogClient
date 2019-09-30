@@ -28,6 +28,7 @@ def start_dummy(zmq_aio_ctx: zmq.asyncio.Context):
                 _msgs.extend(motor.Action(port, motor.POWER, 0) for port in range(0, 4))
                 _msgs.extend(servo.Action(port, None) for port in range(0, 6))
                 _msgs.append(speaker.Action(None))
+                _msgs.append(vision.CloseCameraAction())
                 assert msgs == tuple(_msgs)
                 await socket.send_msgs(ident, [ack.Acknowledgement()] * len(_msgs))
 

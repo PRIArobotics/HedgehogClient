@@ -255,6 +255,7 @@ class AsyncClient:
                 msgs.extend(motor.Action(port, motor.POWER, 0) for port in range(0, 4))
                 msgs.extend(servo.Action(port, None) for port in range(0, 6))
                 msgs.append(speaker.Action(None))
+                msgs.append(vision.CloseCameraAction())
                 await self._send(msgs, tuple(None for _ in msgs))
 
     async def _send(self, requests: Sequence[Message], handlers: Sequence[AsyncHandler]) -> Sequence[Message]:
