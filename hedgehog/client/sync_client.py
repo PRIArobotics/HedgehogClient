@@ -1,4 +1,4 @@
-from typing import Awaitable, Callable, Optional, Sequence, Tuple, TypeVar
+from typing import Awaitable, Callable, Dict, Optional, Sequence, Tuple, TypeVar
 
 import concurrent.futures
 import logging
@@ -11,7 +11,7 @@ from contextlib import contextmanager, ExitStack
 from functools import partial
 
 from concurrent_utils.event_loop_thread import EventLoopThread
-from hedgehog.protocol.messages import Message, motor
+from hedgehog.protocol.messages import Message, motor, vision
 from . import async_client, shutdown_handler
 from .async_handlers import AsyncHandler
 
@@ -250,6 +250,44 @@ class HedgehogClientMixin(object):
 
     def set_speaker(self, frequency: Optional[int]) -> None:
         self._call_safe(lambda: self.client.set_speaker(frequency))
+
+    def open_camera(self) -> None:
+        self._call_safe(lambda: self.client.open_camera())
+
+    def close_camera(self) -> None:
+        self._call_safe(lambda: self.client.close_camera())
+
+    @contextmanager
+    def camera(self) -> None:
+        try:
+            self.open_camera()
+            yield
+        finally:
+            self.close_camera()
+
+    def create_channel(self, key: str, channel: vision.Channel) -> None:
+        self._call_safe(lambda: self.client.create_channel(key, channel))
+
+    def update_channel(self, key: str, channel: vision.Channel) -> None:
+        self._call_safe(lambda: self.client.update_channel(key, channel))
+
+    def delete_channel(self, key: str) -> None:
+        self._call_safe(lambda: self.client.delete_channel(key))
+
+    def get_channel(self, key: str) -> vision.Channel:
+        return self._call_safe(lambda: self.client.get_channel(key))
+
+    def get_channels(self) -> Dict[str, vision.Channel]:
+        return self._call_safe(lambda: self.client.get_channels())
+
+    def capture_frame(self) -> None:
+        self._call_safe(lambda: self.client.capture_frame())
+
+    def get_frame(self, highlight: str = None) -> bytes:
+        return self._call_safe(lambda: self.client.get_frame(highlight))
+
+    def get_feature(self, channel: str) -> vision.Feature:
+        return self._call_safe(lambda: self.client.get_feature(channel))
 
 
 class HedgehogClientLegoMixin:

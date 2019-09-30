@@ -11,7 +11,7 @@ import zmq.asyncio
 from concurrent_utils.pipe import PipeEnd
 from hedgehog.client.async_client import HedgehogClient, connect
 from hedgehog.protocol import errors
-from hedgehog.protocol.messages import io, motor, process
+from hedgehog.protocol.messages import io, motor, process, vision
 from hedgehog.protocol.zmq.asyncio import DealerRouterSocket
 
 # Pytest fixtures
@@ -449,6 +449,69 @@ class TestHedgehogClientAPI(object):
         frequency = 440
         async with connect_dummy(Commands.speaker_action, frequency) as client:
             assert await client.set_speaker(frequency) is None
+
+    @pytest.mark.asyncio
+    async def test_open_camera(self, connect_dummy):
+        async with connect_dummy(Commands.open_camera_action) as client:
+            assert await client.open_camera() is None
+
+    @pytest.mark.asyncio
+    async def test_close_camera(self, connect_dummy):
+        async with connect_dummy(Commands.close_camera_action) as client:
+            assert await client.close_camera() is None
+
+    @pytest.mark.asyncio
+    async def test_camera(self, connect_dummy):
+        async with connect_dummy(Commands.camera_context) as client:
+            async with client.camera():
+                pass
+
+    @pytest.mark.asyncio
+    async def test_create_channel(self, connect_dummy):
+        key, channel = 'foo', vision.FacesChannel()
+        async with connect_dummy(Commands.create_channel_action, key, channel) as client:
+            assert await client.create_channel(key, channel) is None
+
+    @pytest.mark.asyncio
+    async def test_update_channel(self, connect_dummy):
+        key, channel = 'foo', vision.FacesChannel()
+        async with connect_dummy(Commands.update_channel_action, key, channel) as client:
+            assert await client.update_channel(key, channel) is None
+
+    @pytest.mark.asyncio
+    async def test_delete_channel(self, connect_dummy):
+        key = 'foo'
+        async with connect_dummy(Commands.delete_channel_action, key) as client:
+            assert await client.delete_channel(key) is None
+
+    @pytest.mark.asyncio
+    async def test_get_channel(self, connect_dummy):
+        key, channel = 'foo', vision.FacesChannel()
+        async with connect_dummy(Commands.channel_request, key, channel) as client:
+            assert await client.get_channel(key) == channel
+
+    @pytest.mark.asyncio
+    async def test_get_channels(self, connect_dummy):
+        key, channel = 'foo', vision.FacesChannel()
+        async with connect_dummy(Commands.channel_request_list, key, channel) as client:
+            assert await client.get_channels() == {key: channel}
+
+    @pytest.mark.asyncio
+    async def test_capture_frame(self, connect_dummy):
+        async with connect_dummy(Commands.capture_frame_action) as client:
+            assert await client.capture_frame() is None
+
+    @pytest.mark.asyncio
+    async def test_get_frame(self, connect_dummy):
+        highlight, frame = 'foo', b'asdf'
+        async with connect_dummy(Commands.frame_request, highlight, frame) as client:
+            assert await client.get_frame(highlight) == frame
+
+    @pytest.mark.asyncio
+    async def test_get_feature(self, connect_dummy):
+        channel, frame = 'foo', vision.FacesFeature([])
+        async with connect_dummy(Commands.feature_request, channel, frame) as client:
+            assert await client.get_feature(channel) == frame
 
 
 class TestHedgehogLegoClientAPI(object):

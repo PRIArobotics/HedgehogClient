@@ -9,7 +9,7 @@ from contextlib import contextmanager, asynccontextmanager
 from concurrent_utils.event_loop_thread import EventLoopThread
 from hedgehog.protocol import ServerSide, errors
 from hedgehog.protocol.zmq.asyncio import DealerRouterSocket
-from hedgehog.protocol.messages import Message, ack, analog, digital, imu, io, motor, servo, process, speaker
+from hedgehog.protocol.messages import Message, ack, analog, digital, imu, io, motor, servo, process, speaker, vision
 
 
 @pytest.fixture
@@ -28,6 +28,7 @@ def start_dummy(zmq_aio_ctx: zmq.asyncio.Context):
                 _msgs.extend(motor.Action(port, motor.POWER, 0) for port in range(0, 4))
                 _msgs.extend(servo.Action(port, None) for port in range(0, 6))
                 _msgs.append(speaker.Action(None))
+                _msgs.append(vision.CloseCameraAction())
                 assert msgs == tuple(_msgs)
                 await socket.send_msgs(ident, [ack.Acknowledgement()] * len(_msgs))
 
@@ -214,3 +215,67 @@ class Commands(object):
         assert msg == speaker.Action(frequency)
         await server.send_msg(ident, ack.Acknowledgement())
 
+    @staticmethod
+    async def open_camera_action(server):
+        ident, msg = await server.recv_msg()
+        assert msg == vision.OpenCameraAction()
+        await server.send_msg(ident, ack.Acknowledgement())
+
+    @staticmethod
+    async def close_camera_action(server):
+        ident, msg = await server.recv_msg()
+        assert msg == vision.CloseCameraAction()
+        await server.send_msg(ident, ack.Acknowledgement())
+
+    @staticmethod
+    async def camera_context(server):
+        await Commands.open_camera_action(server)
+        await Commands.close_camera_action(server)
+
+    @staticmethod
+    async def create_channel_action(server, key, channel):
+        ident, msg = await server.recv_msg()
+        assert msg == vision.CreateChannelAction({key: channel})
+        await server.send_msg(ident, ack.Acknowledgement())
+
+    @staticmethod
+    async def update_channel_action(server, key, channel):
+        ident, msg = await server.recv_msg()
+        assert msg == vision.UpdateChannelAction({key: channel})
+        await server.send_msg(ident, ack.Acknowledgement())
+
+    @staticmethod
+    async def delete_channel_action(server, key):
+        ident, msg = await server.recv_msg()
+        assert msg == vision.DeleteChannelAction({key})
+        await server.send_msg(ident, ack.Acknowledgement())
+
+    @staticmethod
+    async def channel_request(server, key, channel):
+        ident, msg = await server.recv_msg()
+        assert msg == vision.ChannelRequest({key})
+        await server.send_msg(ident, vision.ChannelReply({key: channel}))
+
+    @staticmethod
+    async def channel_request_list(server, key, channel):
+        ident, msg = await server.recv_msg()
+        assert msg == vision.ChannelRequest(set())
+        await server.send_msg(ident, vision.ChannelReply({key: channel}))
+
+    @staticmethod
+    async def capture_frame_action(server):
+        ident, msg = await server.recv_msg()
+        assert msg == vision.CaptureFrameAction()
+        await server.send_msg(ident, ack.Acknowledgement())
+
+    @staticmethod
+    async def frame_request(server, highlight, frame):
+        ident, msg = await server.recv_msg()
+        assert msg == vision.FrameRequest(highlight)
+        await server.send_msg(ident, vision.FrameReply(highlight, frame))
+
+    @staticmethod
+    async def feature_request(server, channel, feature):
+        ident, msg = await server.recv_msg()
+        assert msg == vision.FeatureRequest(channel)
+        await server.send_msg(ident, vision.FeatureReply(channel, feature))
